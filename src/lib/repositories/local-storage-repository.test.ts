@@ -147,9 +147,11 @@ describe("local storage repository", () => {
       paymentMethod: "bank_transfer",
       referenceNumber: "TEST-RECEIPT-001",
       amount: 100_000,
+      receiptDocumentUrl: "https://drive.google.com/example-receipt",
     });
     const notification = (await repository.getNotifications()).find((item) => item.collectionId === result.collection.id);
 
     expect(notification).toMatchObject({ type: "payment_recorded", expiresAt: "2026-09-04", href: "/collections" });
+    expect(result.collection.receiptDocumentUrl).toBe("https://drive.google.com/example-receipt");
   });
 });
