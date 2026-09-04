@@ -1,13 +1,14 @@
 import { DEFAULT_INTEREST_TERMS, DEMO_SETTINGS, DEMO_TODAY } from "@/lib/config/demo";
 import { allocatePayment, paymentStatus } from "@/lib/finance/calculations";
 import { seedDatabase } from "@/lib/mock/seed-data";
+import { DATABASE_UPDATED_EVENT } from "@/lib/repositories/events";
 import { createPaymentRecordedNotification, notificationsForUser, syncNotifications } from "@/lib/notifications/notification-centre";
 import type { Collection, Customer, InterestTerms, MockDatabase, PaymentSchedule, Receipt, ReminderTemplate, User, Villa } from "@/lib/domain/types";
 import type { ApplicationSettingsInput, CollectionInput, CollectionQuery, CollectionResult, CustomerInput, GracePeriodInput, InterestDefaultsInput, PaymentScheduleDefaultsInput, PaymentScheduleUpdateInput, ProjectInput, ProjectUpdate, ReminderApprovalReviewInput, ReminderTemplateInput, Repository, UserInput, UserUpdate, VillaQuery, VillaSetupInput, VillaSetupResult } from "@/lib/repositories/contracts";
 
 const STORAGE_KEY = "juniper-villa-management:mock-database:v1";
 const CURRENT_USER_ID = "user-vishal";
-export const DATABASE_UPDATED_EVENT = "juniper:database-updated";
+export { DATABASE_UPDATED_EVENT };
 
 function clone<T>(value: T): T {
   return structuredClone(value);

@@ -12,7 +12,9 @@ import type { MockDatabase, VillaOperationalStatus } from "@/lib/domain/types";
 import { villaStatusLabels } from "@/lib/domain/status-labels";
 import { formatLkr } from "@/lib/formatters";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 type VillaRow = { kind: "configured"; summary: VillaSummary } | { kind: "placeholder"; id: string; number: string };
 type StatusFilter = "all" | VillaOperationalStatus;
@@ -74,7 +76,7 @@ export function ProjectVillasPageClient({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     let active = true;
-    void mockRepository.getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load villas."); });
+    void repository.getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load villas."); });
     return () => { active = false; };
   }, []);
 

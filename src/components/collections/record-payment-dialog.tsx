@@ -10,7 +10,9 @@ import { DEMO_TODAY } from "@/lib/config/demo";
 import type { Customer, MockDatabase, PaymentMethod, Villa } from "@/lib/domain/types";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
 import { formatLkr } from "@/lib/formatters";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 const paymentSchema = z.object({
   paymentDate: z.string().min(1, "Select a payment date."),
@@ -49,7 +51,7 @@ export function RecordPaymentDialog({ customer, database, onClose, onSuccess, vi
     setSaving(true);
     setError("");
     try {
-      await mockRepository.recordCollection({
+      await repository.recordCollection({
         projectId: selectedVilla.projectId,
         villaId: selectedVilla.id,
         customerId: selectedCustomer.id,

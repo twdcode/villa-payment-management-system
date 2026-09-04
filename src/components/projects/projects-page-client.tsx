@@ -14,7 +14,9 @@ import { projectStatusLabels } from "@/lib/domain/status-labels";
 import { formatLkrCompact } from "@/lib/formatters";
 import { can } from "@/lib/permissions/roles";
 import { deriveProjectSummaries, type ProjectSummary } from "@/lib/projects/project-summary";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 type ProjectFormValues = { name: string; location: string; plannedVillaCount: string; status: ProjectStatus };
 
@@ -81,8 +83,8 @@ function ProjectFormDialog({ onOpenChange, onSaved, open, project }: { onOpenCha
     setIsSaving(true);
     try {
       const savedProject = isEditing
-        ? await mockRepository.updateProject(project.id, { name: values.name, location: values.location, status: values.status })
-        : await mockRepository.createProject({ name: values.name, location: values.location, status: "active", plannedVillaCount: Number(values.plannedVillaCount) });
+        ? await repository.updateProject(project.id, { name: values.name, location: values.location, status: values.status })
+        : await repository.createProject({ name: values.name, location: values.location, status: "active", plannedVillaCount: Number(values.plannedVillaCount) });
       onSaved(savedProject, isEditing ? "Project updated successfully." : "Project created successfully.");
       onOpenChange(false);
     } catch (reason) {
@@ -123,7 +125,7 @@ export function ProjectsPageClient() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([mockRepository.getDatabase(), mockRepository.getCurrentUser()]).then(([database, currentUser]) => {
+    void Promise.all([repository.getDatabase(), repository.getCurrentUser()]).then(([database, currentUser]) => {
       if (!active) return;
       setProjects(deriveProjectSummaries(database));
       setUser(currentUser);

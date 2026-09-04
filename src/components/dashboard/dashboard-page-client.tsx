@@ -24,7 +24,9 @@ import { DEMO_TODAY } from "@/lib/config/demo";
 import { buildDashboardSnapshot, type DashboardPaymentStatus } from "@/lib/dashboard/snapshot";
 import type { MockDatabase } from "@/lib/domain/types";
 import { formatLkr, formatLkrCompact } from "@/lib/formatters";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 const paymentStatusLabels: Record<DashboardPaymentStatus, string> = {
   overdue: "Overdue",
@@ -144,12 +146,12 @@ export function DashboardPageClient() {
 
   function retryLoad() {
     setLoadError("");
-    void mockRepository.getDatabase().then(setDatabase).catch(() => setLoadError("Unable to load the dashboard data."));
+    void repository.getDatabase().then(setDatabase).catch(() => setLoadError("Unable to load the dashboard data."));
   }
 
   useEffect(() => {
     let active = true;
-    void mockRepository.getDatabase()
+    void repository.getDatabase()
       .then((result) => { if (active) setDatabase(result); })
       .catch(() => { if (active) setLoadError("Unable to load the dashboard data."); });
     return () => { active = false; };

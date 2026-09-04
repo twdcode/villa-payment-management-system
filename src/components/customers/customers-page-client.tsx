@@ -12,7 +12,9 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import type { Customer, MockDatabase, PaymentSchedule, Villa } from "@/lib/domain/types";
 import { formatLkr } from "@/lib/formatters";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 type Toast = { message: string } | null;
 type CustomerDraft = { fullName: string; phone: string; email: string; nicPassport: string; address: string };
@@ -37,7 +39,7 @@ function CustomerFormDialog({ customer, onOpenChange, onSaved, open }: { custome
     event.preventDefault(); setError(""); setSaving(true);
     const parsed = customerSchema.safeParse(draft);
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Check the customer details."); setSaving(false); return; }
-    try { if (customer) await mockRepository.updateCustomer(customer.id, parsed.data); else await mockRepository.createCustomer(parsed.data); onOpenChange(false); onSaved(); }
+    try { if (customer) await repository.updateCustomer(customer.id, parsed.data); else await repository.createCustomer(parsed.data); onOpenChange(false); onSaved(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to save customer."); }
     finally { setSaving(false); }
   }
@@ -61,7 +63,7 @@ function CustomerNotes({ customer, database, onSaved }: { customer: Customer; da
   const [content, setContent] = useState(""); const [saving, setSaving] = useState(false);
   const notes = database.notes.filter((note) => note.customerId === customer.id && !note.deletedAt);
   const users = new Map(database.users.map((user) => [user.id, user]));
-  async function save(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); if (!content.trim()) return; setSaving(true); try { await mockRepository.addCustomerNote(customer.id, content); setContent(""); onSaved(); } finally { setSaving(false); } }
+  async function save(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); if (!content.trim()) return; setSaving(true); try { await repository.addCustomerNote(customer.id, content); setContent(""); onSaved(); } finally { setSaving(false); } }
   return <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]"><section className="rounded-lg border bg-surface p-5 sm:p-7"><h2 className="text-lg font-semibold">Customer notes</h2><div className="mt-6 space-y-6">{notes.length ? notes.map((note) => <article className="border-b pb-6 last:border-0 last:pb-0" key={note.id}><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-full bg-surface-muted text-sm font-bold text-primary">{initials(users.get(note.authorId)?.name ?? "Juniper")}</span><div><p className="font-semibold">{users.get(note.authorId)?.name ?? "Juniper user"}</p><p className="text-sm text-muted-foreground">{new Intl.DateTimeFormat("en-LK", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.createdAt))}</p></div></div><p className="mt-4 text-sm leading-6 text-muted-foreground">{note.content}</p></article>) : <p className="text-sm text-muted-foreground">No customer notes yet.</p>}</div></section><aside className="h-fit rounded-lg border bg-surface p-5 sm:p-6"><h2 className="text-lg font-semibold">Add customer note</h2><p className="mt-1 text-sm text-muted-foreground">Visible only on {customer.fullName}</p><form className="mt-5" onSubmit={save}><textarea className="min-h-40 w-full rounded-md border bg-surface px-3 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setContent(event.target.value)} placeholder="Write a customer update, decision or follow-up..." value={content} /><Button className="mt-4 w-full" disabled={!content.trim() || saving} type="submit"><Plus className="size-4" />{saving ? "Saving..." : "Save note"}</Button></form></aside></div>;
 }
 
@@ -71,8 +73,8 @@ function PaymentScheduleProgress({ schedules }: { schedules: Array<PaymentSchedu
 
 export function CustomersPageClient({ customerId }: { customerId?: string }) {
   const [database, setDatabase] = useState<MockDatabase | null>(null); const [createOpen, setCreateOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [collectionOpen, setCollectionOpen] = useState(false); const [tab, setTab] = useState<"overview" | "note">("overview"); const [toast, setToast] = useState<Toast>(null);
-  const refresh = async (message?: string) => { const next = await mockRepository.getDatabase(); setDatabase(next); if (message) setToast({ message }); };
-  useEffect(() => { void mockRepository.getDatabase().then(setDatabase); }, []);
+  const refresh = async (message?: string) => { const next = await repository.getDatabase(); setDatabase(next); if (message) setToast({ message }); };
+  useEffect(() => { void repository.getDatabase().then(setDatabase); }, []);
   const customer = database?.customers.find((candidate) => candidate.id === customerId) ?? null;
   const customerVillas = useMemo(() => database && customer ? database.villas.filter((villa) => villa.customerId === customer.id && villa.operationalStatus !== "cancelled") : [], [database, customer]);
   if (!database) return <AppShell active="Customers"><p className="text-sm text-muted-foreground">Loading customers...</p></AppShell>;

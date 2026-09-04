@@ -10,7 +10,9 @@ import { DEFAULT_PAYMENT_SCHEDULE_STAGES } from "@/lib/config/demo";
 import type { Customer, InterestTerms, MockDatabase, VillaOperationalStatus } from "@/lib/domain/types";
 import { villaStatusLabels } from "@/lib/domain/status-labels";
 import type { PaymentScheduleInput, VillaSetupInput } from "@/lib/repositories/contracts";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 type Step = 1 | 2 | 3 | 4;
 type CustomerMode = "unassigned" | "existing" | "new";
@@ -66,7 +68,7 @@ export function VillaSetupPageClient({ projectId, villaId }: { projectId: string
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { void mockRepository.getDatabase().then((nextDatabase) => { setDatabase(nextDatabase); setInterestEnabled(nextDatabase.settings.defaultChargeLatePaymentInterest); setInterestTerms({ ...nextDatabase.settings.defaultInterestTerms }); }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to load setup data.")); }, []);
+  useEffect(() => { void repository.getDatabase().then((nextDatabase) => { setDatabase(nextDatabase); setInterestEnabled(nextDatabase.settings.defaultChargeLatePaymentInterest); setInterestTerms({ ...nextDatabase.settings.defaultInterestTerms }); }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to load setup data.")); }, []);
 
   const selectedProject = database?.projects.find((project) => project.id === selectedProjectId) ?? null;
   const defaults = database?.settings.defaultInterestTerms;
@@ -103,7 +105,7 @@ export function VillaSetupPageClient({ projectId, villaId }: { projectId: string
     setSaving(true);
     const input: VillaSetupInput = { projectId: selectedProjectId, number: number.trim(), type: villaType.trim(), value: Number(value), operationalStatus, chargeLatePaymentInterest: interestEnabled, ...(customerMode === "existing" ? { customerId } : {}), ...(customerMode === "new" ? { newCustomer } : {}), ...(interestEnabled ? { interestTerms } : {}), ...(scheduleIsComplete ? { schedules: schedule.map((item) => ({ stage: item.stage, deliverables: item.deliverables, dueDate: item.dueDate, principalAmount: item.principalAmount, gracePeriodDays: item.gracePeriodDays })) } : {}) };
     try {
-      const result = await mockRepository.completeVillaSetup(input);
+      const result = await repository.completeVillaSetup(input);
       router.push(`/projects/${selectedProjectId}/villas/${result.villa.id}?created=1`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to create the villa profile.");

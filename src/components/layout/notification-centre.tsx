@@ -9,8 +9,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { DEMO_TODAY } from "@/lib/config/demo";
 import type { NotificationType, User, WorkspaceNotification } from "@/lib/domain/types";
 import { daysBetween } from "@/lib/finance/calculations";
-import { DATABASE_UPDATED_EVENT, mockRepository } from "@/lib/repositories/local-storage-repository";
+import { DATABASE_UPDATED_EVENT, getRepository } from "@/lib/repositories";
 import { cn } from "@/lib/utils";
+
+const repository = getRepository();
 
 const notificationIcons: Record<NotificationType, typeof Bell> = {
   payment_approaching: CalendarDays,
@@ -63,7 +65,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   const refresh = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const nextNotifications = await mockRepository.getNotifications();
+      const nextNotifications = await repository.getNotifications();
       setError("");
       setNotifications(nextNotifications);
     } catch (reason) {
@@ -76,7 +78,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   useEffect(() => {
     if (!currentUser) return;
     let active = true;
-    void mockRepository.getNotifications().then(
+    void repository.getNotifications().then(
       (nextNotifications) => {
         if (!active) return;
         setError("");
@@ -124,7 +126,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
     setError("");
     try {
       if (currentUser && !notification.readBy.includes(currentUser.id)) {
-        const updated = await mockRepository.markNotificationRead(notification.id);
+        const updated = await repository.markNotificationRead(notification.id);
         setNotifications((current) => current.map((item) => item.id === updated.id ? updated : item));
       }
       setOpen(false);
@@ -137,7 +139,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   async function markAllRead() {
     setError("");
     try {
-      setNotifications(await mockRepository.markAllNotificationsRead());
+      setNotifications(await repository.markAllNotificationsRead());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to update notifications.");
     }

@@ -7,7 +7,9 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { MockDatabase, Villa } from "@/lib/domain/types";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 type Action = "cancel" | "delete" | null;
 
@@ -25,8 +27,8 @@ function VillaActionDialog({ action, onClose, onComplete, villa }: { action: Exc
     setError("");
     setSaving(true);
     try {
-      if (isCancellation) await mockRepository.cancelVilla(villa.id, reason);
-      else await mockRepository.deleteVillaPermanently(villa.id, reason);
+      if (isCancellation) await repository.cancelVilla(villa.id, reason);
+      else await repository.deleteVillaPermanently(villa.id, reason);
       onComplete();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : `Unable to ${isCancellation ? "cancel" : "delete"} this villa.`);
@@ -56,7 +58,7 @@ export function VillaSettingsPageClient() {
 
   async function refresh() {
     try {
-      const next = await mockRepository.getDatabase();
+      const next = await repository.getDatabase();
       setDatabase(next);
       setSelectedVillaId((current) => current && next.villas.some((villa) => villa.id === current) ? current : next.villas[0]?.id ?? "");
     } catch (cause) {
@@ -66,7 +68,7 @@ export function VillaSettingsPageClient() {
 
   useEffect(() => {
     let active = true;
-    void mockRepository.getDatabase().then((next) => {
+    void repository.getDatabase().then((next) => {
       if (!active) return;
       setDatabase(next);
       setSelectedVillaId(next.villas[0]?.id ?? "");

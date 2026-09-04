@@ -10,7 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { MockDatabase, User, UserRole } from "@/lib/domain/types";
 import { roleLabels } from "@/lib/permissions/roles";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 const CURRENT_USER_ID = "user-vishal";
 const roleValues = ["super_admin", "editor", "staff", "view_only"] as const;
@@ -67,8 +69,8 @@ function UserFormDialog({ user, onClose, onSaved }: { user: User | null; onClose
     setError("");
     try {
       const saved = user
-        ? await mockRepository.updateUser(user.id, result.data)
-        : await mockRepository.createUser(result.data);
+        ? await repository.updateUser(user.id, result.data)
+        : await repository.createUser(result.data);
       onSaved(saved, user ? "User profile updated successfully." : "User access added successfully.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save user access.");
@@ -113,7 +115,7 @@ function DeleteUserDialog({ user, onClose, onDeleted }: { user: User; onClose: (
     setDeleting(true);
     setError("");
     try {
-      await mockRepository.deleteUser(user.id);
+      await repository.deleteUser(user.id);
       onDeleted(user.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to delete this user.");
@@ -151,7 +153,7 @@ export function UserAccessPanel({ database, onSaved }: { database: MockDatabase;
     setBusyId(user.id);
     setError("");
     try {
-      const updated = await mockRepository.setUserActive(user.id, !user.isActive);
+      const updated = await repository.setUserActive(user.id, !user.isActive);
       onSaved({ ...database, users: database.users.map((candidate) => candidate.id === user.id ? updated : candidate) }, updated.isActive ? "User enabled successfully." : "User disabled successfully.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to change user access.");

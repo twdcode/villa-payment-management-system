@@ -9,7 +9,9 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { MockDatabase, ReminderTemplate } from "@/lib/domain/types";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 const templateSchema = z.object({
   name: z.string().trim().min(2, "Template name must contain at least two characters."),
@@ -54,8 +56,8 @@ function TemplateFormDialog({ template, onClose, onSaved }: { template: Reminder
     setError("");
     try {
       const saved = template
-        ? await mockRepository.updateReminderTemplate(template.id, parsed.data)
-        : await mockRepository.createReminderTemplate(parsed.data);
+        ? await repository.updateReminderTemplate(template.id, parsed.data)
+        : await repository.createReminderTemplate(parsed.data);
       onSaved(saved, template ? "Reminder template updated successfully." : "Reminder template added successfully.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save the reminder template.");
@@ -90,7 +92,7 @@ function DeleteTemplateDialog({ template, onClose, onDeleted }: { template: Remi
     setDeleting(true);
     setError("");
     try {
-      await mockRepository.deleteReminderTemplate(template.id);
+      await repository.deleteReminderTemplate(template.id);
       onDeleted(template.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to delete this reminder template.");
@@ -118,7 +120,7 @@ export function ReminderTemplatesPanel({ database, onSaved }: { database: MockDa
     setBusyId(template.id);
     setError("");
     try {
-      const updated = await mockRepository.setReminderTemplateActive(template.id, !template.isActive);
+      const updated = await repository.setReminderTemplateActive(template.id, !template.isActive);
       onSaved({ ...database, reminderTemplates: database.reminderTemplates.map((candidate) => candidate.id === template.id ? updated : candidate) }, updated.isActive ? "Reminder template enabled successfully." : "Reminder template disabled successfully.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to change the reminder template status.");

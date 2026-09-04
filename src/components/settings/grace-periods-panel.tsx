@@ -9,7 +9,9 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { GracePeriod, MockDatabase, WorkspaceSettings } from "@/lib/domain/types";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 const gracePeriodSchema = z.object({
   name: z.string().trim().min(2, "Grace period name must contain at least two characters."),
@@ -38,8 +40,8 @@ function GracePeriodFormDialog({ period, onClose, onSaved }: { period: GracePeri
     setError("");
     try {
       const settings = period
-        ? await mockRepository.updateGracePeriod(period.id, parsed.data)
-        : await mockRepository.createGracePeriod(parsed.data);
+        ? await repository.updateGracePeriod(period.id, parsed.data)
+        : await repository.createGracePeriod(parsed.data);
       onSaved(settings, period ? "Grace period updated successfully." : "Grace period added successfully.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save the grace period.");
@@ -58,7 +60,7 @@ function DeleteGracePeriodDialog({ period, onClose, onDeleted }: { period: Grace
     setDeleting(true);
     setError("");
     try {
-      onDeleted(await mockRepository.deleteGracePeriod(period.id));
+      onDeleted(await repository.deleteGracePeriod(period.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to delete this grace period.");
       setDeleting(false);
@@ -84,7 +86,7 @@ export function GracePeriodsPanel({ database, onSaved }: { database: MockDatabas
     setBusyId(period.id);
     setError("");
     try {
-      const settings = await mockRepository.setGracePeriodActive(period.id, !period.isActive);
+      const settings = await repository.setGracePeriodActive(period.id, !period.isActive);
       onSaved({ ...database, settings }, period.isActive ? "Grace period disabled successfully." : "Grace period enabled successfully.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to change the grace period status.");

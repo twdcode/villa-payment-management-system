@@ -18,7 +18,9 @@ import { isPaymentScheduleReady } from "@/lib/finance/calculations";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
 import { can } from "@/lib/permissions/roles";
 import type { PaymentScheduleUpdateInput } from "@/lib/repositories/contracts";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 const documentLinkSchema = z.object({
   name: z.string().trim().min(1, "Enter a document name."),
@@ -70,7 +72,7 @@ function PaymentScheduleDialog({ onOpenChange, onSaved, open, schedules, villa }
     setError("");
     setSaving(true);
     try {
-      await mockRepository.updatePaymentSchedule(villa.id, drafts.map((draft) => ({ id: draft.id, stage: draft.stage, deliverables: draft.deliverables, dueDate: draft.dueDate, principalAmount: draft.principalAmount, gracePeriodDays: draft.gracePeriodDays })));
+      await repository.updatePaymentSchedule(villa.id, drafts.map((draft) => ({ id: draft.id, stage: draft.stage, deliverables: draft.deliverables, dueDate: draft.dueDate, principalAmount: draft.principalAmount, gracePeriodDays: draft.gracePeriodDays })));
       onOpenChange(false);
       onSaved();
     } catch (reason) {
@@ -106,7 +108,7 @@ function InterestTermsDialog({ onOpenChange, onSaved, open, terms: initialTerms,
     setError("");
     setSaving(true);
     try {
-      await mockRepository.updateVillaInterestTerms(villa.id, { chargeLatePaymentInterest, interestTerms: terms });
+      await repository.updateVillaInterestTerms(villa.id, { chargeLatePaymentInterest, interestTerms: terms });
       onOpenChange(false);
       onSaved();
     } catch (reason) {
@@ -155,11 +157,11 @@ function VillaSettingsPanel({ database, onCancelled, onDeleted, villa }: { datab
     setSaving(true);
     try {
       if (action === "cancel") {
-        await mockRepository.cancelVilla(villa.id, reason);
+        await repository.cancelVilla(villa.id, reason);
         setAction(null);
         onCancelled();
       } else {
-        await mockRepository.deleteVillaPermanently(villa.id, reason);
+        await repository.deleteVillaPermanently(villa.id, reason);
         setAction(null);
         onDeleted();
       }
@@ -192,7 +194,7 @@ function NoteComposer({ currentUser, onSaved, villa }: { currentUser: MockDataba
     setError("");
     setSaving(true);
     try {
-      await mockRepository.addVillaNote(villa.id, content);
+      await repository.addVillaNote(villa.id, content);
       setContent("");
       onSaved();
     } catch (reason) {
@@ -220,7 +222,7 @@ function VillaDocumentsTab({ database, onSaved, villa }: { database: MockDatabas
     setError("");
     setSaving(true);
     try {
-      await mockRepository.addVillaDocument(villa.id, parsed.data);
+      await repository.addVillaDocument(villa.id, parsed.data);
       setForm({ name: "", date: "", url: "" });
       onSaved();
     } catch (reason) {
@@ -295,7 +297,7 @@ export function VillaProfilePageClient({ projectId, villaId }: { projectId: stri
 
   useEffect(() => {
     let active = true;
-    void mockRepository.getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load villa."); });
+    void repository.getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load villa."); });
     return () => { active = false; };
   }, []);
 
@@ -304,5 +306,5 @@ export function VillaProfilePageClient({ projectId, villaId }: { projectId: stri
   const placeholderNumber = villaId.startsWith("draft-") ? villaId.replace("draft-", "").padStart(2, "0") : "";
   const searchParams = useSearchParams();
 
-  return <AppShell active="Projects & Villas"><div className="max-w-none">{feedback && <div className="fixed right-4 top-4 z-40 flex w-[calc(100%-2rem)] max-w-xl items-center justify-between gap-3 rounded-lg border border-success bg-success px-4 py-4 text-sm font-medium text-primary-foreground shadow-lg" role="status"><span className="flex items-center gap-3"><Info className="size-5" />{feedback}</span><button aria-label="Dismiss success message" className="rounded-md p-1 hover:bg-primary-foreground/15" onClick={() => setFeedback("")}><X className="size-4" /></button></div>}{searchParams.get("created") === "1" && <div className="mb-6 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-semibold text-success" role="status"><CheckCircle2 className="size-5" />Villa profile created successfully.</div>}{error ? <p className="rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p> : !database ? <div className="h-96 animate-pulse rounded-2xl border bg-surface-muted" /> : !project ? <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><h1 className="text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href="/projects">Return to projects</Link></div></div> : summary ? <ConfiguredVillaProfile database={database} onCollectionSaved={(message) => { setFeedback(message); void mockRepository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to refresh villa.")); }} onInterestSaved={() => { setFeedback("Successfully updated interest terms."); void mockRepository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to refresh villa.")); }} onScheduleSaved={() => { setFeedback("Successfully updated payment schedule."); void mockRepository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to refresh villa.")); }} projectId={projectId} projectName={project.name} summary={summary} /> : placeholderNumber ? <EmptyVillaProfile number={placeholderNumber} projectId={projectId} projectName={project.name} /> : <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><FileText aria-hidden="true" className="mx-auto size-8 text-accent" /><h1 className="mt-4 text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href={`/projects/${projectId}`}>Return to villas</Link></div></div>}</div></AppShell>;
+  return <AppShell active="Projects & Villas"><div className="max-w-none">{feedback && <div className="fixed right-4 top-4 z-40 flex w-[calc(100%-2rem)] max-w-xl items-center justify-between gap-3 rounded-lg border border-success bg-success px-4 py-4 text-sm font-medium text-primary-foreground shadow-lg" role="status"><span className="flex items-center gap-3"><Info className="size-5" />{feedback}</span><button aria-label="Dismiss success message" className="rounded-md p-1 hover:bg-primary-foreground/15" onClick={() => setFeedback("")}><X className="size-4" /></button></div>}{searchParams.get("created") === "1" && <div className="mb-6 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-semibold text-success" role="status"><CheckCircle2 className="size-5" />Villa profile created successfully.</div>}{error ? <p className="rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p> : !database ? <div className="h-96 animate-pulse rounded-2xl border bg-surface-muted" /> : !project ? <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><h1 className="text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href="/projects">Return to projects</Link></div></div> : summary ? <ConfiguredVillaProfile database={database} onCollectionSaved={(message) => { setFeedback(message); void repository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to refresh villa.")); }} onInterestSaved={() => { setFeedback("Successfully updated interest terms."); void repository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to refresh villa.")); }} onScheduleSaved={() => { setFeedback("Successfully updated payment schedule."); void repository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Unable to refresh villa.")); }} projectId={projectId} projectName={project.name} summary={summary} /> : placeholderNumber ? <EmptyVillaProfile number={placeholderNumber} projectId={projectId} projectName={project.name} /> : <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><FileText aria-hidden="true" className="mx-auto size-8 text-accent" /><h1 className="mt-4 text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href={`/projects/${projectId}`}>Return to villas</Link></div></div>}</div></AppShell>;
 }

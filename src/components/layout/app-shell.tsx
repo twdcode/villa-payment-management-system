@@ -12,7 +12,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { User } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 import { can, roleLabels, type Permission } from "@/lib/permissions/roles";
-import { mockRepository } from "@/lib/repositories/local-storage-repository";
+import { getRepository } from "@/lib/repositories";
+
+const repository = getRepository();
 
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -31,7 +33,7 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void mockRepository.getCurrentUser().then(setCurrentUser);
+    void repository.getCurrentUser().then(setCurrentUser);
   }, []);
 
   useEffect(() => {
