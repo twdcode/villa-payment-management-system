@@ -5,6 +5,7 @@ import { DATABASE_UPDATED_EVENT } from "@/lib/repositories/events";
 import { createPaymentRecordedNotification, notificationsForUser, syncNotifications } from "@/lib/notifications/notification-centre";
 import type { Collection, Customer, InterestTerms, MockDatabase, PaymentSchedule, Receipt, ReminderTemplate, User, Villa } from "@/lib/domain/types";
 import type { ApplicationSettingsInput, CollectionInput, CollectionQuery, CollectionResult, CustomerInput, GracePeriodInput, InterestDefaultsInput, PaymentScheduleDefaultsInput, PaymentScheduleUpdateInput, ProjectInput, ProjectUpdate, ReminderApprovalReviewInput, ReminderTemplateInput, Repository, UserInput, UserUpdate, VillaQuery, VillaSetupInput, VillaSetupResult } from "@/lib/repositories/contracts";
+import { isVillaActive } from "@/lib/domain/villa-status";
 
 const STORAGE_KEY = "juniper-villa-management:mock-database:v1";
 const CURRENT_USER_ID = "user-vishal";
@@ -449,7 +450,7 @@ export function createLocalStorageRepository(): Repository {
     },
     async getCollections(query: CollectionQuery = {}) {
       const database = readDatabase();
-      const activeVillaIds = new Set(database.villas.filter((villa) => villa.operationalStatus !== "cancelled").map((villa) => villa.id));
+      const activeVillaIds = new Set(database.villas.filter(isVillaActive).map((villa) => villa.id));
       return clone(database.collections.filter((collection) =>
         activeVillaIds.has(collection.villaId) &&
         (!query.projectId || collection.projectId === query.projectId) &&

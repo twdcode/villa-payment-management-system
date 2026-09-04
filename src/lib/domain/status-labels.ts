@@ -15,4 +15,4 @@ export const paymentStatusLabels: Record<PaymentStatus, string> = {
   paid: "Paid",
   partially_paid: "Partially paid",
 };
-export const collectionStatusLabels: Record<CollectionStatus, string> = { confirmed: "Confirmed", reversed: "Reversed" };
+export const collectionStatusLabels: Record<CollectionStatus, string> = { confirmed: "Confirmed", superseded: "Superseded" };

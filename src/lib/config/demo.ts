@@ -2,15 +2,25 @@ import type { InterestTerms, ProjectPaymentScheduleDefault, WorkspaceSettings } 
 
 export const DEMO_TODAY = "2026-08-28";
 
+/**
+ * Workspace defaults, from the Figma designs and the PRD (C9).
+ *
+ * `monthlyRate` is a FRACTION, not a percent: 0.015 = 1.5%. The UI multiplies by 100 for
+ * display. Getting this backwards makes every interest figure 100x wrong.
+ *
+ * The worked examples in docs/INTEREST-EXAMPLES.md are derived from exactly these values —
+ * E1 gives LKR 34,000 on 2,000,000 over 34 chargeable days. Change one and the test suite
+ * no longer reproduces.
+ */
 export const DEFAULT_INTEREST_TERMS: InterestTerms = {
-  monthlyRate: 0.02,
-  gracePeriodDays: 30,
+  monthlyRate: 0.015,
+  gracePeriodDays: 15,
   proRataDivisor: 30,
   interestStart: "after_grace",
   allocationOrder: "interest_first",
-  reminderDaysAfterDue: 3,
+  reminderDaysAfterDue: 14,
   secondReminderDaysAfterDue: 21,
-  finalNoticeDaysAfterDue: 30,
+  finalNoticeDaysAfterDue: 28,
 };
 
 export const DEFAULT_PAYMENT_SCHEDULE_STAGES = [

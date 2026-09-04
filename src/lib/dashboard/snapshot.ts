@@ -1,6 +1,7 @@
 import { DEMO_TODAY } from "@/lib/config/demo";
 import type { MockDatabase, PaymentSchedule, PaymentStatus, Villa } from "@/lib/domain/types";
 import { addDays, calculateVillaFinancials, daysBetween, isPaymentScheduleReady, paymentStatus, principalOutstanding, roundMoney } from "@/lib/finance/calculations";
+import { isVillaActive } from "@/lib/domain/villa-status";
 
 export type DashboardScope = {
   projectId?: string;
@@ -72,7 +73,7 @@ function scheduleDashboardStatus(schedule: PaymentSchedule, computedStatus: Paym
 
 export function buildDashboardSnapshot(database: MockDatabase, scope: DashboardScope = {}): DashboardSnapshot {
   const scopedVillas = database.villas.filter((villa) =>
-    villa.operationalStatus !== "cancelled" &&
+    isVillaActive(villa) &&
     (!scope.projectId || scope.projectId === "all" || villa.projectId === scope.projectId) &&
     (!scope.villaId || scope.villaId === "all" || villa.id === scope.villaId),
   );

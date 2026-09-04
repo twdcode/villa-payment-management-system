@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { MockDatabase, ReminderTemplate } from "@/lib/domain/types";
 import { getRepository } from "@/lib/repositories";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -60,7 +61,7 @@ function TemplateFormDialog({ template, onClose, onSaved }: { template: Reminder
         : await repository.createReminderTemplate(parsed.data);
       onSaved(saved, template ? "Reminder template updated successfully." : "Reminder template added successfully.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to save the reminder template.");
+      setError(errorMessage(reason, "Unable to save the reminder template."));
     } finally {
       setSaving(false);
     }
@@ -95,7 +96,7 @@ function DeleteTemplateDialog({ template, onClose, onDeleted }: { template: Remi
       await repository.deleteReminderTemplate(template.id);
       onDeleted(template.id);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to delete this reminder template.");
+      setError(errorMessage(reason, "Unable to delete this reminder template."));
       setDeleting(false);
     }
   }
@@ -123,7 +124,7 @@ export function ReminderTemplatesPanel({ database, onSaved }: { database: MockDa
       const updated = await repository.setReminderTemplateActive(template.id, !template.isActive);
       onSaved({ ...database, reminderTemplates: database.reminderTemplates.map((candidate) => candidate.id === template.id ? updated : candidate) }, updated.isActive ? "Reminder template enabled successfully." : "Reminder template disabled successfully.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to change the reminder template status.");
+      setError(errorMessage(reason, "Unable to change the reminder template status."));
     } finally {
       setBusyId("");
     }

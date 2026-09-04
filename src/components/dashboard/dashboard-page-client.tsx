@@ -25,6 +25,7 @@ import { buildDashboardSnapshot, type DashboardPaymentStatus } from "@/lib/dashb
 import type { MockDatabase } from "@/lib/domain/types";
 import { formatLkr, formatLkrCompact } from "@/lib/formatters";
 import { getRepository } from "@/lib/repositories";
+import { isVillaActive } from "@/lib/domain/villa-status";
 
 const repository = getRepository();
 
@@ -156,7 +157,7 @@ export function DashboardPageClient() {
       .catch(() => { if (active) setLoadError("Unable to load the dashboard data."); });
     return () => { active = false; };
   }, []);
-  const availableVillas = useMemo(() => !database ? [] : database.villas.filter((villa) => villa.operationalStatus !== "cancelled" && (projectId === "all" || villa.projectId === projectId)), [database, projectId]);
+  const availableVillas = useMemo(() => !database ? [] : database.villas.filter((villa) => isVillaActive(villa) && (projectId === "all" || villa.projectId === projectId)), [database, projectId]);
   const snapshot = useMemo(() => database ? buildDashboardSnapshot(database, { projectId, villaId }) : null, [database, projectId, villaId]);
 
   if (loadError) return <AppShell active="Dashboard"><div className="rounded-lg border border-danger/30 bg-surface p-6"><p className="font-semibold text-danger">{loadError}</p><Button className="mt-4" onClick={retryLoad} variant="outline">Try again</Button></div></AppShell>;

@@ -15,6 +15,7 @@ import { formatLkrCompact } from "@/lib/formatters";
 import { can } from "@/lib/permissions/roles";
 import { deriveProjectSummaries, type ProjectSummary } from "@/lib/projects/project-summary";
 import { getRepository } from "@/lib/repositories";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -88,7 +89,7 @@ function ProjectFormDialog({ onOpenChange, onSaved, open, project }: { onOpenCha
       onSaved(savedProject, isEditing ? "Project updated successfully." : "Project created successfully.");
       onOpenChange(false);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to save the project.");
+      setError(errorMessage(reason, "Unable to save the project."));
     } finally {
       setIsSaving(false);
     }
@@ -132,7 +133,7 @@ export function ProjectsPageClient() {
       setLoading(false);
     }).catch((reason: unknown) => {
       if (!active) return;
-      setError(reason instanceof Error ? reason.message : "Unable to load projects.");
+      setError(errorMessage(reason, "Unable to load projects."));
       setLoading(false);
     });
     return () => { active = false; };

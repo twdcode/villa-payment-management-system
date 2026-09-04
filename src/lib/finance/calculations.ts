@@ -24,6 +24,16 @@ export function principalOutstanding(schedule: PaymentSchedule) {
   return roundMoney(Math.max(0, schedule.principalAmount - schedule.principalPaid));
 }
 
+/** Interest charged on a stage but not yet paid. */
+export function interestOutstanding(schedule: PaymentSchedule) {
+  return roundMoney(Math.max(0, schedule.interestAccrued - schedule.interestPaid));
+}
+
+/** Everything still owed on a stage: principal plus unpaid interest. */
+export function totalOutstanding(schedule: PaymentSchedule) {
+  return roundMoney(principalOutstanding(schedule) + interestOutstanding(schedule));
+}
+
 export function isPaymentScheduleReady(schedule: PaymentSchedule) {
   return Boolean(schedule.stage.trim()) && Boolean(schedule.dueDate) && schedule.principalAmount > 0 && schedule.gracePeriodDays >= 0;
 }

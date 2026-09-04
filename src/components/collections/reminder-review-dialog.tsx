@@ -11,6 +11,8 @@ import type { MockDatabase, ReminderApproval } from "@/lib/domain/types";
 import { calculateVillaFinancials, paymentStatus, principalOutstanding } from "@/lib/finance/calculations";
 import { formatLkr } from "@/lib/formatters";
 import { getRepository } from "@/lib/repositories";
+import { resolveInterestTerms } from "@/lib/domain/interest-terms";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -28,7 +30,7 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
   const villa = database.villas.find((candidate) => candidate.id === approval.villaId);
   const customer = database.customers.find((candidate) => candidate.id === approval.customerId);
   const schedules = useMemo(() => database.schedules.filter((schedule) => schedule.villaId === approval.villaId), [approval.villaId, database.schedules]);
-  const terms = { ...database.settings.defaultInterestTerms, ...villa?.interestTerms, ...(villa?.chargeLatePaymentInterest === false ? { monthlyRate: 0 } : {}) };
+  const terms = resolveInterestTerms(database.settings, villa);
   const financials = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
   const paymentDue = schedules.filter((schedule) => principalOutstanding(schedule) > 0).sort((left, right) => left.dueDate.localeCompare(right.dueDate))[0];
   const defaultTemplate = database.reminderTemplates.find((template) => template.id === approval.templateId && template.isActive) ?? database.reminderTemplates.find((template) => template.type === "overdue" && template.isActive);
@@ -56,7 +58,7 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
       await repository.reviewReminderApproval(approval.id, { ...parsed.data, action });
       onSuccess(action === "send" ? "Reminder sent successfully." : "Reminder draft saved successfully.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to update this reminder.");
+      setError(errorMessage(reason, "Unable to update this reminder."));
     } finally {
       setSaving(null);
     }

@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import type { MockDatabase, User, UserRole } from "@/lib/domain/types";
 import { roleLabels } from "@/lib/permissions/roles";
 import { getRepository } from "@/lib/repositories";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -73,7 +74,7 @@ function UserFormDialog({ user, onClose, onSaved }: { user: User | null; onClose
         : await repository.createUser(result.data);
       onSaved(saved, user ? "User profile updated successfully." : "User access added successfully.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to save user access.");
+      setError(errorMessage(reason, "Unable to save user access."));
     } finally {
       setSaving(false);
     }
@@ -118,7 +119,7 @@ function DeleteUserDialog({ user, onClose, onDeleted }: { user: User; onClose: (
       await repository.deleteUser(user.id);
       onDeleted(user.id);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to delete this user.");
+      setError(errorMessage(reason, "Unable to delete this user."));
       setDeleting(false);
     }
   }
@@ -156,7 +157,7 @@ export function UserAccessPanel({ database, onSaved }: { database: MockDatabase;
       const updated = await repository.setUserActive(user.id, !user.isActive);
       onSaved({ ...database, users: database.users.map((candidate) => candidate.id === user.id ? updated : candidate) }, updated.isActive ? "User enabled successfully." : "User disabled successfully.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to change user access.");
+      setError(errorMessage(reason, "Unable to change user access."));
     } finally {
       setBusyId("");
     }

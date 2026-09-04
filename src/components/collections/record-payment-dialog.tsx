@@ -11,6 +11,9 @@ import type { Customer, MockDatabase, PaymentMethod, Villa } from "@/lib/domain/
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
 import { formatLkr } from "@/lib/formatters";
 import { getRepository } from "@/lib/repositories";
+import { resolveInterestTerms } from "@/lib/domain/interest-terms";
+import { isVillaActive } from "@/lib/domain/villa-status";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -25,13 +28,12 @@ const paymentSchema = z.object({
 const villaName = (villa: Villa) => villa.number.replace(/^[A-Z]+-/, "Villa ");
 
 export function RecordPaymentDialog({ customer, database, onClose, onSuccess, villa }: { customer?: Customer; database: MockDatabase; onClose: () => void; onSuccess: (message: string) => void; villa?: Villa }) {
-  const eligibleVillas = database.villas.filter((candidate) => candidate.operationalStatus !== "cancelled" && candidate.customerId && database.customers.some((item) => item.id === candidate.customerId) && database.schedules.some((schedule) => schedule.villaId === candidate.id));
+  const eligibleVillas = database.villas.filter((candidate) => isVillaActive(candidate) && candidate.customerId && database.customers.some((item) => item.id === candidate.customerId) && database.schedules.some((schedule) => schedule.villaId === candidate.id));
   const [selectedVillaId, setSelectedVillaId] = useState(villa?.id ?? eligibleVillas[0]?.id ?? "");
   const selectedVilla = villa ?? eligibleVillas.find((candidate) => candidate.id === selectedVillaId);
   const selectedCustomer = customer ?? database.customers.find((candidate) => candidate.id === selectedVilla?.customerId);
   const schedules = selectedVilla ? database.schedules.filter((schedule) => schedule.villaId === selectedVilla.id) : [];
-  const storedTerms = { ...database.settings.defaultInterestTerms, ...selectedVilla?.interestTerms };
-  const terms = selectedVilla?.chargeLatePaymentInterest === false ? { ...storedTerms, monthlyRate: 0 } : storedTerms;
+  const terms = resolveInterestTerms(database.settings, selectedVilla);
   const financials = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
   const [form, setForm] = useState({ paymentDate: DEMO_TODAY, amount: "", paymentMethod: "bank_transfer", referenceNumber: "", documentUrl: "" });
   const [error, setError] = useState("");
@@ -63,7 +65,7 @@ export function RecordPaymentDialog({ customer, database, onClose, onSuccess, vi
       });
       onSuccess("Payment recorded successfully.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to save payment.");
+      setError(errorMessage(reason, "Unable to save payment."));
     } finally {
       setSaving(false);
     }

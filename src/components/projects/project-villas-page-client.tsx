@@ -13,6 +13,7 @@ import { villaStatusLabels } from "@/lib/domain/status-labels";
 import { formatLkr } from "@/lib/formatters";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
 import { getRepository } from "@/lib/repositories";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -76,7 +77,7 @@ export function ProjectVillasPageClient({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     let active = true;
-    void repository.getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load villas."); });
+    void repository.getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(errorMessage(reason, "Unable to load villas.")); });
     return () => { active = false; };
   }, []);
 

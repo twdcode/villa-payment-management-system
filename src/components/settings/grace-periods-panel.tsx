@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { GracePeriod, MockDatabase, WorkspaceSettings } from "@/lib/domain/types";
 import { getRepository } from "@/lib/repositories";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -44,7 +45,7 @@ function GracePeriodFormDialog({ period, onClose, onSaved }: { period: GracePeri
         : await repository.createGracePeriod(parsed.data);
       onSaved(settings, period ? "Grace period updated successfully." : "Grace period added successfully.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to save the grace period.");
+      setError(errorMessage(reason, "Unable to save the grace period."));
     } finally {
       setSaving(false);
     }
@@ -62,7 +63,7 @@ function DeleteGracePeriodDialog({ period, onClose, onDeleted }: { period: Grace
     try {
       onDeleted(await repository.deleteGracePeriod(period.id));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to delete this grace period.");
+      setError(errorMessage(reason, "Unable to delete this grace period."));
       setDeleting(false);
     }
   }
@@ -89,7 +90,7 @@ export function GracePeriodsPanel({ database, onSaved }: { database: MockDatabas
       const settings = await repository.setGracePeriodActive(period.id, !period.isActive);
       onSaved({ ...database, settings }, period.isActive ? "Grace period disabled successfully." : "Grace period enabled successfully.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to change the grace period status.");
+      setError(errorMessage(reason, "Unable to change the grace period status."));
     } finally {
       setBusyId("");
     }

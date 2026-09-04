@@ -11,6 +11,7 @@ import type { NotificationType, User, WorkspaceNotification } from "@/lib/domain
 import { daysBetween } from "@/lib/finance/calculations";
 import { DATABASE_UPDATED_EVENT, getRepository } from "@/lib/repositories";
 import { cn } from "@/lib/utils";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -69,7 +70,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
       setError("");
       setNotifications(nextNotifications);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to load notifications.");
+      setError(errorMessage(reason, "Unable to load notifications."));
     } finally {
       setLoading(false);
     }
@@ -87,7 +88,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
       },
       (reason) => {
         if (!active) return;
-        setError(reason instanceof Error ? reason.message : "Unable to load notifications.");
+        setError(errorMessage(reason, "Unable to load notifications."));
         setLoading(false);
       },
     );
@@ -132,7 +133,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
       setOpen(false);
       router.push(notification.href);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to open this notification.");
+      setError(errorMessage(reason, "Unable to open this notification."));
     }
   }
 
@@ -141,7 +142,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
     try {
       setNotifications(await repository.markAllNotificationsRead());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to update notifications.");
+      setError(errorMessage(reason, "Unable to update notifications."));
     }
   }
 

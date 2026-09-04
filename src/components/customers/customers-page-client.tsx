@@ -9,10 +9,14 @@ import { RecordPaymentDialog } from "@/components/collections/record-payment-dia
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { DEMO_TODAY } from "@/lib/config/demo";
 import type { Customer, MockDatabase, PaymentSchedule, Villa } from "@/lib/domain/types";
 import { formatLkr } from "@/lib/formatters";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
 import { getRepository } from "@/lib/repositories";
+import { resolveInterestTerms } from "@/lib/domain/interest-terms";
+import { villasForCustomer } from "@/lib/domain/villa-status";
+import { errorMessage } from "@/lib/errors";
 
 const repository = getRepository();
 
@@ -40,22 +44,22 @@ function CustomerFormDialog({ customer, onOpenChange, onSaved, open }: { custome
     const parsed = customerSchema.safeParse(draft);
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Check the customer details."); setSaving(false); return; }
     try { if (customer) await repository.updateCustomer(customer.id, parsed.data); else await repository.createCustomer(parsed.data); onOpenChange(false); onSaved(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to save customer."); }
+    catch (reason) { setError(errorMessage(reason, "Unable to save customer.")); }
     finally { setSaving(false); }
   }
   return <Dialog onOpenChange={onOpenChange} open={open}><DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-3xl overflow-y-auto rounded-lg p-5 sm:w-[calc(100%-2rem)] sm:p-8" showClose={false}><div className="flex items-start justify-between gap-5"><div><DialogTitle className="text-2xl font-medium">{customer ? "Edit customer" : "Create customer"}</DialogTitle><DialogDescription className="mt-2">Complete the required information below.</DialogDescription></div><Button aria-label="Close customer form" onClick={() => onOpenChange(false)} size="icon" type="button" variant="ghost"><X className="size-5" /></Button></div><form className="mt-6 space-y-4" onSubmit={submit}>{([['fullName','Customer name*'], ['phone','Mobile number*'], ['email','Email*'], ['nicPassport','NIC / Passport'], ['address','Address']] as const).map(([field, label]) => <label className="block text-sm font-semibold text-muted-foreground" key={field}>{label}<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => update(field, event.target.value)} required={field === 'fullName' || field === 'phone' || field === 'email'} type={field === 'email' ? 'email' : 'text'} value={draft[field]} /></label>)}{error && <p className="rounded-md bg-danger/10 px-3 py-2 text-sm font-medium text-danger" role="alert">{error}</p>}<div className="flex flex-col-reverse gap-3 pt-3 sm:flex-row sm:justify-end"><Button onClick={() => onOpenChange(false)} type="button" variant="outline">Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : customer ? "Save profile" : "Create customer"}</Button></div></form></DialogContent></Dialog>;
 }
 
 function CustomerCard({ customer, database }: { customer: Customer; database: MockDatabase }) {
-  const villas = database.villas.filter((villa) => villa.customerId === customer.id && villa.operationalStatus !== "cancelled");
+  const villas = villasForCustomer(database.villas, customer.id);
   const outstanding = villas.reduce((total, villa) => total + financials(database, villa).outstanding, 0);
   return <Link className="group flex min-h-30 items-center gap-4 rounded-lg border bg-surface p-5 transition-colors hover:border-foreground" href={`/customers/${customer.id}`}><span className="grid size-14 shrink-0 place-items-center rounded-full bg-surface-muted text-base font-bold text-primary">{initials(customer.fullName)}</span><div className="min-w-0 flex-1"><p className="truncate text-lg font-semibold">{customer.fullName}</p><p className="mt-1 truncate text-sm text-muted-foreground">{customer.phone} | {customer.email}</p></div><div className="hidden text-right sm:block"><p className="text-xs text-muted-foreground">{villas.length} {villas.length === 1 ? "villa" : "villas"}</p><p className="mt-2 font-semibold">{formatLkr(outstanding)}</p><p className="mt-1 text-xs text-muted-foreground">Outstanding</p></div></Link>;
 }
 
 function financials(database: MockDatabase, villa: Villa) {
   const schedules = database.schedules.filter((schedule) => schedule.villaId === villa.id);
-  const terms = { ...database.settings.defaultInterestTerms, ...villa.interestTerms };
-  const money = calculateVillaFinancials(schedules, terms, "2026-08-28");
+  const terms = resolveInterestTerms(database.settings, villa);
+  const money = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
   return { value: villa.value, collected: money.principalCollected, outstanding: Math.max(0, villa.value - money.principalCollected), overdue: money.overduePrincipal };
 }
 
@@ -76,7 +80,7 @@ export function CustomersPageClient({ customerId }: { customerId?: string }) {
   const refresh = async (message?: string) => { const next = await repository.getDatabase(); setDatabase(next); if (message) setToast({ message }); };
   useEffect(() => { void repository.getDatabase().then(setDatabase); }, []);
   const customer = database?.customers.find((candidate) => candidate.id === customerId) ?? null;
-  const customerVillas = useMemo(() => database && customer ? database.villas.filter((villa) => villa.customerId === customer.id && villa.operationalStatus !== "cancelled") : [], [database, customer]);
+  const customerVillas = useMemo(() => database && customer ? villasForCustomer(database.villas, customer.id) : [], [database, customer]);
   if (!database) return <AppShell active="Customers"><p className="text-sm text-muted-foreground">Loading customers...</p></AppShell>;
   if (customerId && !customer) return <AppShell active="Customers"><p className="text-sm text-muted-foreground">Customer not found.</p></AppShell>;
   if (!customer) return <AppShell active="Customers"><ToastAlert onClose={() => setToast(null)} toast={toast} /><div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-semibold">Customers</h1><p className="mt-2 text-muted-foreground">Understand every customer relationship at a glance.</p></div><Button onClick={() => setCreateOpen(true)} variant="outline">New customer <Plus className="size-4" /></Button></div><div className="mt-8 grid gap-4 xl:grid-cols-2">{database.customers.map((candidate) => <CustomerCard customer={candidate} database={database} key={candidate.id} />)}</div><CustomerFormDialog key={`create-${createOpen}`} onOpenChange={setCreateOpen} onSaved={() => void refresh("Customer created successfully.")} open={createOpen} /></AppShell>;

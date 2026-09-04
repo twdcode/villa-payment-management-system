@@ -13,7 +13,7 @@ describe("dashboard snapshot", () => {
       outstanding: 241_000_000,
       currentlyDue: 24_800_000,
       overdue: 29_400_000,
-      interestOutstanding: 996_800,
+      interestOutstanding: 968_100,
       overduePaymentCount: 2,
       upcomingPaymentCount: 2,
       finalNoticeCount: 2,

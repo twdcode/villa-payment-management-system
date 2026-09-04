@@ -11,7 +11,20 @@ const schedule = (
   status: PaymentSchedule["status"],
   interestAccrued = 0,
   interestPaid = 0,
-): PaymentSchedule => ({ id, villaId, stage, dueDate, gracePeriodDays: 30, principalAmount, principalPaid, interestAccrued, interestPaid, status });
+): PaymentSchedule => ({
+  id,
+  villaId,
+  stage,
+  dueDate,
+  // Follows the workspace default (C9: 15 days) rather than a hardcoded 30, so seeded
+  // schedules stay consistent when the default changes.
+  gracePeriodDays: DEFAULT_INTEREST_TERMS.gracePeriodDays,
+  principalAmount,
+  principalPaid,
+  interestAccrued,
+  interestPaid,
+  status,
+});
 
 const collection = (
   id: string,
@@ -40,7 +53,6 @@ const collection = (
   status,
   createdBy: "user-vishal",
   createdAt: `${paymentDate}T10:00:00.000Z`,
-  ...(status === "reversed" ? { reversedAt: "2026-08-04T11:20:00.000Z", reversalReason: "Duplicate bank reference" } : {}),
 });
 
 const receipts: Receipt[] = [
@@ -104,7 +116,7 @@ export const seedDatabase: MockDatabase = {
     schedule("schedule-oc-01a", "villa-oc-01", "Reservation", "2025-10-01", 15_000_000, 15_000_000, "paid"),
     schedule("schedule-oc-01b", "villa-oc-01", "Structure complete", "2025-12-01", 15_000_000, 15_000_000, "paid"),
     schedule("schedule-oc-01c", "villa-oc-01", "Handover", "2026-02-01", 15_000_000, 15_000_000, "paid"),
-    schedule("schedule-oc-02a", "villa-oc-02", "Reservation", "2026-06-15", 20_000_000, 5_000_000, "overdue", 440_000, 0),
+    schedule("schedule-oc-02a", "villa-oc-02", "Reservation", "2026-06-15", 20_000_000, 5_000_000, "overdue", 442_500, 0),
     schedule("schedule-oc-02b", "villa-oc-02", "Structure complete", "2026-10-15", 20_000_000, 0, "not_due"),
     schedule("schedule-oc-02c", "villa-oc-02", "Handover", "2027-02-15", 12_000_000, 0, "not_due"),
     schedule("schedule-oc-03a", "villa-oc-03", "Reservation", "2026-08-15", 12_000_000, 7_000_000, "partially_paid"),
@@ -120,7 +132,7 @@ export const seedDatabase: MockDatabase = {
     schedule("schedule-pg-01b", "villa-pg-01", "Handover", "2026-12-01", 24_500_000, 0, "not_due"),
     schedule("schedule-pg-02a", "villa-pg-02", "Reservation", "2026-05-20", 10_500_000, 10_500_000, "paid"),
     schedule("schedule-pg-02b", "villa-pg-02", "Handover", "2026-11-20", 24_500_000, 0, "not_due"),
-    schedule("schedule-pg-05a", "villa-pg-05", "Reservation", "2026-06-01", 14_400_000, 0, "overdue", 556_800, 0),
+    schedule("schedule-pg-05a", "villa-pg-05", "Reservation", "2026-06-01", 14_400_000, 0, "overdue", 525_600, 0),
     schedule("schedule-pg-05b", "villa-pg-05", "Handover", "2027-01-01", 33_600_000, 0, "not_due"),
     schedule("schedule-sb-01a", "villa-sb-01", "Full settlement", "2025-05-01", 35_000_000, 35_000_000, "paid"),
     schedule("schedule-sb-02a", "villa-sb-02", "Full settlement", "2025-08-01", 34_000_000, 34_000_000, "paid"),
@@ -131,7 +143,6 @@ export const seedDatabase: MockDatabase = {
     collection("collection-002", "receipt-002", "project-ocean", "villa-oc-01", "customer-samara", "2025-12-03", 15_000_000, 0, "confirmed", "schedule-oc-01b"),
     collection("collection-003", "receipt-003", "project-ocean", "villa-oc-01", "customer-samara", "2026-02-08", 15_000_000, 0, "confirmed", "schedule-oc-01c"),
     collection("collection-004", "receipt-004", "project-ocean", "villa-oc-02", "customer-nimal", "2026-06-20", 5_000_000, 0, "confirmed", "schedule-oc-02a"),
-    collection("collection-005", null, "project-ocean", "villa-oc-02", "customer-nimal", "2026-07-03", 2_000_000, 0, "reversed", "schedule-oc-02a"),
     collection("collection-006", "receipt-005", "project-ocean", "villa-oc-03", "customer-maya", "2026-08-09", 7_000_000, 0, "confirmed", "schedule-oc-03a"),
     collection("collection-007", "receipt-006", "project-ocean", "villa-oc-07", "customer-dineth", "2026-05-17", 17_500_000, 0, "confirmed", "schedule-oc-07a"),
     collection("collection-008", "receipt-007", "project-palm", "villa-pg-02", "customer-amaya", "2026-05-20", 10_500_000, 0, "confirmed", "schedule-pg-02a"),

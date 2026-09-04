@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but .env.example carries no secrets and documents what the app needs.
+# Without it, whoever sets up the client's project has no list of required config.
+!.env.example
 
 # vercel
 .vercel
