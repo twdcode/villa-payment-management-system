@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* A real keyboard and a precise pointer — i.e. a desktop, not a phone or tablet. Used to
+   show keyboard shortcut hints only where they can actually be pressed. A width breakpoint
+   is the wrong test: a large tablet is wider than `sm` but has no physical keyboard. */
+@custom-variant pointer-fine (@media (pointer: fine));
+
 :root {
   /* Brand tokens: update this block to rebrand the whole product. */
   --background: #f8f6f6;

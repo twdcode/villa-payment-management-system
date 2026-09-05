@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronRight, CreditCard, Home, LayoutDashboard, LogOut, MoreHorizontal, Search, Settings, UsersRound } from "lucide-react";
+import { Building2, ChevronRight, CreditCard, Home, LayoutDashboard, LogOut, MoreHorizontal, Settings, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BrandMark } from "@/components/brand/brand-mark";
+import { GlobalSearch } from "@/components/layout/global-search";
 import { NotificationCentre } from "@/components/layout/notification-centre";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -147,10 +148,7 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
               toasts — which is where the Figma flows put them. `bg-surface` is opaque rather
               than /95 + blur so a toast crossing the header edge stays fully legible. */}
           <header className="sticky top-0 z-20 flex h-20 items-center gap-3 border-b bg-surface px-5 lg:h-22 lg:px-10">
-            <label className="relative max-w-xl flex-1 lg:flex-initial lg:w-96">
-              <Search aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
-              <input className="h-11 w-full rounded-md border bg-surface pl-11 pr-4 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring" placeholder="Search customer, villa, receipt..." type="search" />
-            </label>
+            <GlobalSearch />
             <NotificationCentre currentUser={currentUser} />
           </header>
           {/* ToastProvider wraps only `children`, so `useToast()` is available to page
