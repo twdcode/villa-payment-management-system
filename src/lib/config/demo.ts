@@ -1,4 +1,8 @@
-import type { InterestTerms, ProjectPaymentScheduleDefault, WorkspaceSettings } from "@/lib/domain/types";
+import type {
+  InterestTerms,
+  ProjectPaymentScheduleDefault,
+  WorkspaceSettings,
+} from "@/lib/domain/types";
 
 export const DEMO_TODAY = "2026-08-28";
 
@@ -64,7 +68,8 @@ export const DEMO_SETTINGS: WorkspaceSettings = {
       id: "grace-standard",
       name: "Standard grace period",
       days: DEFAULT_INTEREST_TERMS.gracePeriodDays,
-      description: "Standard payment extension applied to future villa payment agreements.",
+      description:
+        "Standard payment extension applied to future villa payment agreements.",
       isDefault: true,
       isActive: true,
     },

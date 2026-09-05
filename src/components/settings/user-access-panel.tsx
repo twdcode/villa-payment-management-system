@@ -10,12 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { MockDatabase, User, UserRole } from "@/lib/domain/types";
 import { roleLabels } from "@/lib/permissions/roles";
-import { getRepository } from "@/lib/repositories";
+import { createUserAction, updateUserAction, deleteUserAction, setUserActiveAction } from "@/lib/actions/users";
 import { errorMessage } from "@/lib/errors";
+import { useCurrentUser } from "@/components/auth/current-user-provider";
 
-const repository = getRepository();
 
-const CURRENT_USER_ID = "user-vishal";
 const roleValues = ["super_admin", "editor", "staff", "view_only"] as const;
 
 const userAccessSchema = z.object({
@@ -70,8 +69,8 @@ function UserFormDialog({ user, onClose, onSaved }: { user: User | null; onClose
     setError("");
     try {
       const saved = user
-        ? await repository.updateUser(user.id, result.data)
-        : await repository.createUser(result.data);
+        ? await updateUserAction(user.id, result.data)
+        : await createUserAction(result.data);
       onSaved(saved, user ? "User profile updated successfully." : "User access added successfully.");
     } catch (reason) {
       setError(errorMessage(reason, "Unable to save user access."));
@@ -116,7 +115,7 @@ function DeleteUserDialog({ user, onClose, onDeleted }: { user: User; onClose: (
     setDeleting(true);
     setError("");
     try {
-      await repository.deleteUser(user.id);
+      await deleteUserAction(user.id);
       onDeleted(user.id);
     } catch (reason) {
       setError(errorMessage(reason, "Unable to delete this user."));
@@ -136,6 +135,7 @@ function DeleteUserDialog({ user, onClose, onDeleted }: { user: User; onClose: (
 }
 
 export function UserAccessPanel({ database, onSaved }: { database: MockDatabase; onSaved: (database: MockDatabase, message: string) => void }) {
+  const currentUser = useCurrentUser();
   const [editor, setEditor] = useState<{ mode: "create" } | { mode: "edit"; user: User } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [error, setError] = useState("");
@@ -154,7 +154,7 @@ export function UserAccessPanel({ database, onSaved }: { database: MockDatabase;
     setBusyId(user.id);
     setError("");
     try {
-      const updated = await repository.setUserActive(user.id, !user.isActive);
+      const updated = await setUserActiveAction(user.id, !user.isActive);
       onSaved({ ...database, users: database.users.map((candidate) => candidate.id === user.id ? updated : candidate) }, updated.isActive ? "User enabled successfully." : "User disabled successfully.");
     } catch (reason) {
       setError(errorMessage(reason, "Unable to change user access."));
@@ -171,7 +171,7 @@ export function UserAccessPanel({ database, onSaved }: { database: MockDatabase;
         {error && <p className="mt-5 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p>}
         <div className="mt-5 divide-y">
           {database.users.map((user) => {
-            const isCurrentUser = user.id === CURRENT_USER_ID;
+            const isCurrentUser = user.id === currentUser?.id;
             return <div className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center" key={user.id}>
               <div className={`flex min-w-0 flex-1 items-center gap-3 ${user.isActive ? "" : "opacity-45"}`}><span className="grid size-12 shrink-0 place-items-center rounded-md bg-surface-muted text-sm font-bold">{initials(user.name)}</span><div className="min-w-0"><p className="truncate font-semibold">{user.name}{isCurrentUser && <span className="ml-2 rounded-full bg-surface-muted px-2 py-1 text-xs">You</span>}</p><p className="mt-1 truncate text-sm text-muted-foreground">{user.email}</p></div></div>
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">

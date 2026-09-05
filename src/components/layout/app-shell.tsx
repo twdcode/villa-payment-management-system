@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronRight, CircleEllipsis, CreditCard, LayoutDashboard, LogOut, Menu, Search, Settings, UsersRound } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Building2, ChevronRight, CircleEllipsis, CreditCard, Home, LayoutDashboard, LogOut, Menu, Search, Settings, UsersRound } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BrandMark } from "@/components/brand/brand-mark";
 import { NotificationCentre } from "@/components/layout/notification-centre";
@@ -12,13 +12,16 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { User } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 import { can, roleLabels, type Permission } from "@/lib/permissions/roles";
-import { getRepository } from "@/lib/repositories";
+import { getClientRepository } from "@/lib/repositories/client";
+import { signOutAction } from "@/lib/auth/actions";
+import { CurrentUserProvider } from "@/components/auth/current-user-provider";
+import { IdleTimeoutGuard } from "@/components/auth/idle-timeout-guard";
 
-const repository = getRepository();
 
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projects & Villas", icon: Building2 },
+  { href: "/villas", label: "Villas", icon: Home },
   { href: "/customers", label: "Customers", icon: UsersRound },
   { href: "/collections", label: "Collections", icon: CreditCard },
   { href: "/settings", label: "Settings", icon: Settings, permission: "view_settings" as Permission },
@@ -33,8 +36,25 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void repository.getCurrentUser().then(setCurrentUser);
+    void getClientRepository().getCurrentUser().then(setCurrentUser);
   }, []);
+
+  /**
+   * End the session, then go to the login page.
+   *
+   * `signOutAction` is a Server Action — it clears the auth cookie server-side and
+   * redirects on its own. Calling `getClientRepository().signOut()` here would reach
+   * `SupabaseRepository` from a client component, which Phase 4 established a client
+   * bundle can never safely import.
+   */
+  const signOut = useCallback(async () => {
+    try {
+      await signOutAction();
+    } finally {
+      router.replace("/login");
+      router.refresh();
+    }
+  }, [router]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -56,6 +76,8 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
   const mobileNavigation = permittedNavigation.filter((item) => item.label !== "Settings").slice(0, 4);
 
   return (
+    <CurrentUserProvider user={currentUser}>
+      <IdleTimeoutGuard onSignOut={signOut} />
     <TooltipProvider delayDuration={150}>
       <div className="min-h-screen bg-background lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
         <aside className="fixed inset-y-0 hidden w-70 flex-col bg-sidebar px-8 py-10 lg:flex">
@@ -82,7 +104,7 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
           <div className="relative mt-auto border-t border-white/30 pt-6" ref={accountMenuRef}>
             {accountMenuOpen && (
               <div className="absolute inset-x-0 bottom-[calc(100%+0.75rem)] rounded-md border bg-surface p-2 text-foreground shadow-xl" role="menu">
-                <button className="flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-semibold text-danger transition-colors hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { setAccountMenuOpen(false); router.replace("/login"); }} role="menuitem" type="button"><LogOut className="size-5" />Logout</button>
+                <button className="flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-semibold text-danger transition-colors hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { setAccountMenuOpen(false); void signOut(); }} role="menuitem" type="button"><LogOut className="size-5" />Logout</button>
               </div>
             )}
             <div className="flex items-center gap-3">
@@ -132,5 +154,6 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
         </nav>
       </div>
     </TooltipProvider>
+    </CurrentUserProvider>
   );
 }

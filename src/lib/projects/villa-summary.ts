@@ -8,8 +8,9 @@ export type VillaSummary = {
   financials: VillaFinancials;
 };
 
-export function deriveVillaSummaries(database: MockDatabase, projectId: string): VillaSummary[] {
-  return database.villas.filter((villa) => villa.projectId === projectId).map((villa) => {
+/** Omit `projectId` for a cross-project summary (the global Villas list, C6). */
+export function deriveVillaSummaries(database: MockDatabase, projectId?: string): VillaSummary[] {
+  return database.villas.filter((villa) => !projectId || villa.projectId === projectId).map((villa) => {
     const storedTerms = { ...database.settings.defaultInterestTerms, ...villa.interestTerms };
     const terms = villa.chargeLatePaymentInterest === false ? { ...storedTerms, monthlyRate: 0 } : storedTerms;
     const schedules = database.schedules.filter((schedule) => schedule.villaId === villa.id);

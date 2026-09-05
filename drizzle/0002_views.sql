@@ -57,6 +57,7 @@ SELECT
   s.villa_id,
   s.stage_no,
   s.stage_name,
+  s.deliverables,
   s.due_date,
   s.grace_period_days,
   s.principal_amount,

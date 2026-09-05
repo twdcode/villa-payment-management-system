@@ -76,6 +76,16 @@ export type PaymentSchedule = {
   principalPaid: number;
   interestAccrued: number;
   interestPaid: number;
+  /**
+   * Interest actually CHARGED to this stage so far, and the date it is charged up to.
+   *
+   * Interest is path-dependent — what is owed depends on the balance that applied on each
+   * day — so it cannot be recovered from today's balance. Without these, a partial payment
+   * silently erased interest for days already charged. Optional because seeded demo stages
+   * predate them; absent means "nothing charged yet, accrue from grace-end".
+   */
+  interestCharged?: number;
+  interestChargedTo?: DateString;
   status: PaymentStatus;
 };
 
@@ -221,6 +231,8 @@ export type WorkspaceSettings = {
   timezone: string;
   dateFormat: string;
   receiptPrefix: string;
+  /** O7 — Reply-To on every reminder email. Never hardcoded; the From address is the verified Resend domain. */
+  replyToEmail?: string;
   defaultChargeLatePaymentInterest: boolean;
   defaultInterestTerms: InterestTerms;
   gracePeriods: GracePeriod[];

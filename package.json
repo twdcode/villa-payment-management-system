@@ -11,13 +11,18 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "check:schema": "node scripts/check-schema-drift.mjs"
+    "check:schema": "node scripts/check-schema-drift.mjs",
+    "test:sql": "bash scripts/run-sql-tests.sh",
+    "test:integration": "bash scripts/run-integration-tests.sh"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-slot": "^1.3.3",
     "@radix-ui/react-tooltip": "^1.2.16",
+    "@supabase/ssr": "^0.12.6",
+    "@supabase/supabase-js": "^2.115.0",
     "class-variance-authority": "^0.7.1",
+    "client-only": "^0.0.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.35.0",
@@ -25,6 +30,7 @@
     "postgres": "^3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.5.4"
   },

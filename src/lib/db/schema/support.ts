@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { check, date, index, jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { check, date, index, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
-import { activityEventType, deliveryStatus, noteScope, reminderOrigin, reminderStatus } from "./enums";
+import { activityEventType, deliveryStatus, noteScope, reminderOrigin, reminderStatus, reminderTrigger } from "./enums";
 import { actor, createdAt, updatedAt } from "./columns";
 import { customers, villas } from "./core";
 import { paymentStages } from "./money";
@@ -23,6 +23,8 @@ export const reminderRequests = pgTable(
     templateId: uuid("template_id").references(() => reminderTemplates.id),
 
     origin: reminderOrigin("origin").notNull().default("system"),
+    /** Which schedule event queued this row. NULL for user-initiated requests. */
+    trigger: reminderTrigger("trigger"),
     status: reminderStatus("status").notNull().default("awaiting_approval"),
 
     sendDate: date("send_date").notNull(),
@@ -51,6 +53,12 @@ export const reminderRequests = pgTable(
     // Nothing counts as sent without a timestamp — otherwise "have we contacted them?"
     // has no reliable answer.
     check("reminders_sent_has_timestamp", sql`${table.status} <> 'sent' OR ${table.sentAt} IS NOT NULL`),
+    // One LIVE system request per stage per trigger — blocks the cron job from
+    // double-queuing. Scoped to origin = 'system' so a user manually preparing a reminder
+    // is never blocked by an unrelated schedule trigger.
+    uniqueIndex("reminder_requests_one_live_per_stage_trigger")
+      .on(table.paymentStageId, table.trigger)
+      .where(sql`status IN ('awaiting_approval', 'ready_to_send') AND origin = 'system' AND payment_stage_id IS NOT NULL AND trigger IS NOT NULL`),
   ],
 );
 

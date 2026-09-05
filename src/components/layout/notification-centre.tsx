@@ -9,11 +9,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { DEMO_TODAY } from "@/lib/config/demo";
 import type { NotificationType, User, WorkspaceNotification } from "@/lib/domain/types";
 import { daysBetween } from "@/lib/finance/calculations";
-import { DATABASE_UPDATED_EVENT, getRepository } from "@/lib/repositories";
+import { getClientRepository } from "@/lib/repositories/client";
+import { markNotificationReadAction, markAllNotificationsReadAction } from "@/lib/actions/notifications";
+import { DATABASE_UPDATED_EVENT } from "@/lib/repositories/events";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/errors";
 
-const repository = getRepository();
 
 const notificationIcons: Record<NotificationType, typeof Bell> = {
   payment_approaching: CalendarDays,
@@ -66,7 +67,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   const refresh = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const nextNotifications = await repository.getNotifications();
+      const nextNotifications = await getClientRepository().getNotifications();
       setError("");
       setNotifications(nextNotifications);
     } catch (reason) {
@@ -79,7 +80,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   useEffect(() => {
     if (!currentUser) return;
     let active = true;
-    void repository.getNotifications().then(
+    void getClientRepository().getNotifications().then(
       (nextNotifications) => {
         if (!active) return;
         setError("");
@@ -127,7 +128,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
     setError("");
     try {
       if (currentUser && !notification.readBy.includes(currentUser.id)) {
-        const updated = await repository.markNotificationRead(notification.id);
+        const updated = await markNotificationReadAction(notification.id);
         setNotifications((current) => current.map((item) => item.id === updated.id ? updated : item));
       }
       setOpen(false);
@@ -140,7 +141,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   async function markAllRead() {
     setError("");
     try {
-      setNotifications(await repository.markAllNotificationsRead());
+      setNotifications(await markAllNotificationsReadAction());
     } catch (reason) {
       setError(errorMessage(reason, "Unable to update notifications."));
     }

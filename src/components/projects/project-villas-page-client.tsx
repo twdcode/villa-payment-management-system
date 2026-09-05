@@ -12,10 +12,9 @@ import type { MockDatabase, VillaOperationalStatus } from "@/lib/domain/types";
 import { villaStatusLabels } from "@/lib/domain/status-labels";
 import { formatLkr } from "@/lib/formatters";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
-import { getRepository } from "@/lib/repositories";
+import { getClientRepository } from "@/lib/repositories/client";
 import { errorMessage } from "@/lib/errors";
 
-const repository = getRepository();
 
 type VillaRow = { kind: "configured"; summary: VillaSummary } | { kind: "placeholder"; id: string; number: string };
 type StatusFilter = "all" | VillaOperationalStatus;
@@ -69,17 +68,19 @@ function VillaTable({ projectId, rows }: { projectId: string; rows: VillaRow[] }
   );
 }
 
-export function ProjectVillasPageClient({ projectId }: { projectId: string }) {
-  const [database, setDatabase] = useState<MockDatabase | null>(null);
+/** `initialData`: fetched server-side by `app/projects/[projectId]/page.tsx`. See dashboard-page-client.tsx for why it stays optional. */
+export function ProjectVillasPageClient({ projectId, initialData }: { projectId: string; initialData?: MockDatabase }) {
+  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (initialData) return;
     let active = true;
-    void repository.getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(errorMessage(reason, "Unable to load villas.")); });
+    void getClientRepository().getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(errorMessage(reason, "Unable to load villas.")); });
     return () => { active = false; };
-  }, []);
+  }, [initialData]);
 
   const project = database?.projects.find((candidate) => candidate.id === projectId) ?? null;
   const rows = useMemo<VillaRow[]>(() => {

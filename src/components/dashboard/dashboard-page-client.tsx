@@ -24,10 +24,9 @@ import { DEMO_TODAY } from "@/lib/config/demo";
 import { buildDashboardSnapshot, type DashboardPaymentStatus } from "@/lib/dashboard/snapshot";
 import type { MockDatabase } from "@/lib/domain/types";
 import { formatLkr, formatLkrCompact } from "@/lib/formatters";
-import { getRepository } from "@/lib/repositories";
+import { getClientRepository } from "@/lib/repositories/client";
 import { isVillaActive } from "@/lib/domain/villa-status";
 
-const repository = getRepository();
 
 const paymentStatusLabels: Record<DashboardPaymentStatus, string> = {
   overdue: "Overdue",
@@ -139,24 +138,31 @@ function CustomerNotes({ notes }: { notes: ReturnType<typeof buildDashboardSnaps
   );
 }
 
-export function DashboardPageClient() {
-  const [database, setDatabase] = useState<MockDatabase | null>(null);
+/**
+ * `initialData`: fetched server-side by `app/dashboard/page.tsx` and passed down, so the
+ * dashboard's first paint needs no client-side round trip. In mock mode (no Supabase
+ * project yet) `page.tsx` cannot call the repository server-side, so this stays optional
+ * and the `useEffect` below covers that case exactly as before.
+ */
+export function DashboardPageClient({ initialData }: { initialData?: MockDatabase } = {}) {
+  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null);
   const [loadError, setLoadError] = useState("");
   const [projectId, setProjectId] = useState("all");
   const [villaId, setVillaId] = useState("all");
 
   function retryLoad() {
     setLoadError("");
-    void repository.getDatabase().then(setDatabase).catch(() => setLoadError("Unable to load the dashboard data."));
+    void getClientRepository().getDatabase().then(setDatabase).catch(() => setLoadError("Unable to load the dashboard data."));
   }
 
   useEffect(() => {
+    if (initialData) return;
     let active = true;
-    void repository.getDatabase()
+    void getClientRepository().getDatabase()
       .then((result) => { if (active) setDatabase(result); })
       .catch(() => { if (active) setLoadError("Unable to load the dashboard data."); });
     return () => { active = false; };
-  }, []);
+  }, [initialData]);
   const availableVillas = useMemo(() => !database ? [] : database.villas.filter((villa) => isVillaActive(villa) && (projectId === "all" || villa.projectId === projectId)), [database, projectId]);
   const snapshot = useMemo(() => database ? buildDashboardSnapshot(database, { projectId, villaId }) : null, [database, projectId, villaId]);
 

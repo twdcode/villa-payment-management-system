@@ -1,5 +1,5 @@
 import { DEFAULT_INTEREST_TERMS, DEMO_SETTINGS, DEMO_TODAY } from "@/lib/config/demo";
-import { allocatePayment, paymentStatus } from "@/lib/finance/calculations";
+import { allocatePayment, paymentStatus, roundMoney } from "@/lib/finance/calculations";
 import { seedDatabase } from "@/lib/mock/seed-data";
 import { DATABASE_UPDATED_EVENT } from "@/lib/repositories/events";
 import { createPaymentRecordedNotification, notificationsForUser, syncNotifications } from "@/lib/notifications/notification-centre";
@@ -8,6 +8,12 @@ import type { ApplicationSettingsInput, CollectionInput, CollectionQuery, Collec
 import { isVillaActive } from "@/lib/domain/villa-status";
 
 const STORAGE_KEY = "juniper-villa-management:mock-database:v1";
+/**
+ * The identity the mock signs in as.
+ *
+ * Demo-mode only. The Supabase repository derives the user from the verified session —
+ * nothing outside this file assumes a fixed user any more.
+ */
 const CURRENT_USER_ID = "user-vishal";
 export { DATABASE_UPDATED_EVENT };
 
@@ -187,6 +193,32 @@ function validateInterestTerms(terms: InterestTerms) {
 
 export function createLocalStorageRepository(): Repository {
   return {
+    // --- Authentication (mock) ---
+    // The mock has no real auth. It validates against seeded users so the login screen
+    // behaves correctly in demo mode; passwords are not checked.
+    async signIn(email: string) {
+      const database = readDatabase();
+      const user = database.users.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase());
+      if (!user) throw new Error("Incorrect email or password.");
+      if (!user.isActive) throw new Error("This account has been disabled.");
+      return clone(user);
+    },
+    async signOut() {
+      // Nothing to clear: the mock has no session.
+    },
+    async mustChangePassword() {
+      return false;
+    },
+    async changePassword() {
+      throw new Error("Password changes require the Supabase backend.");
+    },
+    async requestPasswordReset() {
+      // Deliberately silent — an error here would reveal whether an address exists.
+    },
+    async completePasswordReset() {
+      throw new Error("Password resets require the Supabase backend.");
+    },
+
     async getCurrentUser() {
       const user = readDatabase().users.find((candidate) => candidate.id === CURRENT_USER_ID);
       if (!user) throw new Error("Demo user is not configured.");
@@ -548,6 +580,91 @@ export function createLocalStorageRepository(): Repository {
 
       return clone({ collection: newCollection, receipt, schedules: allocation.schedules, advanceCredit: allocation.advanceCredit });
     },
+    /**
+     * C1/E10 — corrections supersede; there is no reversal.
+     *
+     * The demo mirror of `update_collection()` in Postgres: retain the original with
+     * `supersededAt` set, write a replacement carrying the SAME receipt number, and
+     * re-derive interest from the corrected values rather than patching the old figure.
+     */
+    async updateCollection(id, input, reason) {
+      const editReason = reason.trim();
+      if (editReason.length < 3) throw new Error("Enter a reason for this correction.");
+
+      const database = readDatabase();
+      const index = database.collections.findIndex((candidate) => candidate.id === id);
+      if (index === -1) throw new Error("Collection not found.");
+      const original = database.collections[index];
+      if (original.supersededAt) throw new Error("This collection has already been corrected.");
+
+      const villa = database.villas.find((candidate) => candidate.id === input.villaId);
+      if (!villa) throw new Error("Villa not found.");
+      if (villa.operationalStatus === "cancelled") throw new Error("Collections cannot be recorded for a cancelled villa programme.");
+
+      // Undo the original's effect, and rewind the interest anchor so the corrected
+      // values re-derive interest instead of inheriting what was charged before.
+      database.schedules = database.schedules.map((schedule) => {
+        const allocated = original.allocations.find((item) => item.scheduleId === schedule.id);
+        if (!allocated) return schedule;
+        return {
+          ...schedule,
+          principalPaid: roundMoney(Math.max(0, schedule.principalPaid - allocated.principalAmount)),
+          interestPaid: roundMoney(Math.max(0, schedule.interestPaid - allocated.interestAmount)),
+          interestAccrued: 0,
+          interestCharged: 0,
+          interestChargedTo: undefined,
+        };
+      });
+
+      database.collections[index] = { ...original, status: "superseded", supersededAt: `${DEMO_TODAY}T12:00:00.000Z`, editReason };
+
+      const villaSchedules = database.schedules.filter((schedule) => schedule.villaId === input.villaId);
+      const storedTerms = { ...database.settings.defaultInterestTerms, ...villa.interestTerms };
+      const terms = villa.chargeLatePaymentInterest === false ? { ...storedTerms, monthlyRate: 0 } : storedTerms;
+      const allocation = allocatePayment(villaSchedules, input.amount, terms, input.paymentDate);
+      database.schedules = database.schedules.map((schedule) => allocation.schedules.find((updated) => updated.id === schedule.id) ?? schedule);
+
+      const collectionId = `collection-${crypto.randomUUID()}`;
+      const receiptId = `receipt-${crypto.randomUUID()}`;
+      const originalReceipt = database.receipts.find((candidate) => candidate.collectionId === original.id);
+      const receipt: Receipt = {
+        id: receiptId,
+        // C15: the correction keeps the original receipt number.
+        number: originalReceipt?.number ?? receiptNumber(database),
+        collectionId,
+        issuedAt: input.paymentDate,
+        principalAmount: allocation.principalAmount,
+        interestAmount: allocation.interestAmount,
+        totalAmount: allocation.principalAmount + allocation.interestAmount,
+      };
+      const replacement: Collection = {
+        id: collectionId,
+        receiptId,
+        projectId: input.projectId,
+        villaId: input.villaId,
+        customerId: input.customerId,
+        paymentDate: input.paymentDate,
+        paymentMethod: input.paymentMethod,
+        referenceNumber: input.referenceNumber,
+        principalAmount: allocation.principalAmount,
+        interestAmount: allocation.interestAmount,
+        totalAmount: allocation.principalAmount + allocation.interestAmount,
+        allocations: allocation.allocations,
+        status: "confirmed",
+        notes: input.notes,
+        ...(input.receiptDocumentUrl ? { receiptDocumentUrl: input.receiptDocumentUrl } : {}),
+        supersedesId: original.id,
+        editReason,
+        createdBy: CURRENT_USER_ID,
+        createdAt: `${input.paymentDate}T12:00:00.000Z`,
+      };
+      database.collections.unshift(replacement);
+      database.receipts.unshift(receipt);
+      database.notifications = syncNotifications(database, DEMO_TODAY);
+      writeDatabase(database);
+
+      return clone({ collection: replacement, receipt, schedules: allocation.schedules, advanceCredit: allocation.advanceCredit });
+    },
     async createReminderApproval(input) {
       if (!input.templateId || !input.subject?.trim() || !input.message?.trim() || !input.attachmentName?.trim()) throw new Error("Select a template, complete the message, and upload an invoice PDF.");
       if (!input.sendDate) throw new Error("Select a proposed send date.");
@@ -671,8 +788,10 @@ export function createLocalStorageRepository(): Repository {
       const companyName = input.companyName.trim();
       if (companyName.length < 2) throw new Error("Company name must contain at least two characters.");
       if (!input.dateFormat) throw new Error("Select a date format.");
+      const replyToEmail = input.replyToEmail?.trim();
+      if (replyToEmail && !/^\S+@\S+\.\S+$/.test(replyToEmail)) throw new Error("Enter a valid reply-to email address.");
       const database = readDatabase();
-      database.settings = { ...database.settings, companyName, dateFormat: input.dateFormat, currency: "LKR" };
+      database.settings = { ...database.settings, companyName, dateFormat: input.dateFormat, currency: "LKR", ...(replyToEmail ? { replyToEmail } : {}) };
       writeDatabase(database);
       return clone(database.settings);
     },

@@ -13,12 +13,12 @@ import { DEMO_TODAY } from "@/lib/config/demo";
 import type { Customer, MockDatabase, PaymentSchedule, Villa } from "@/lib/domain/types";
 import { formatLkr } from "@/lib/formatters";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
-import { getRepository } from "@/lib/repositories";
+import { getClientRepository } from "@/lib/repositories/client";
+import { createCustomerAction, updateCustomerAction, addCustomerNoteAction } from "@/lib/actions/customers";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { villasForCustomer } from "@/lib/domain/villa-status";
 import { errorMessage } from "@/lib/errors";
 
-const repository = getRepository();
 
 type Toast = { message: string } | null;
 type CustomerDraft = { fullName: string; phone: string; email: string; nicPassport: string; address: string };
@@ -43,7 +43,7 @@ function CustomerFormDialog({ customer, onOpenChange, onSaved, open }: { custome
     event.preventDefault(); setError(""); setSaving(true);
     const parsed = customerSchema.safeParse(draft);
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Check the customer details."); setSaving(false); return; }
-    try { if (customer) await repository.updateCustomer(customer.id, parsed.data); else await repository.createCustomer(parsed.data); onOpenChange(false); onSaved(); }
+    try { if (customer) await updateCustomerAction(customer.id, parsed.data); else await createCustomerAction(parsed.data); onOpenChange(false); onSaved(); }
     catch (reason) { setError(errorMessage(reason, "Unable to save customer.")); }
     finally { setSaving(false); }
   }
@@ -67,7 +67,7 @@ function CustomerNotes({ customer, database, onSaved }: { customer: Customer; da
   const [content, setContent] = useState(""); const [saving, setSaving] = useState(false);
   const notes = database.notes.filter((note) => note.customerId === customer.id && !note.deletedAt);
   const users = new Map(database.users.map((user) => [user.id, user]));
-  async function save(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); if (!content.trim()) return; setSaving(true); try { await repository.addCustomerNote(customer.id, content); setContent(""); onSaved(); } finally { setSaving(false); } }
+  async function save(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); if (!content.trim()) return; setSaving(true); try { await addCustomerNoteAction(customer.id, content); setContent(""); onSaved(); } finally { setSaving(false); } }
   return <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]"><section className="rounded-lg border bg-surface p-5 sm:p-7"><h2 className="text-lg font-semibold">Customer notes</h2><div className="mt-6 space-y-6">{notes.length ? notes.map((note) => <article className="border-b pb-6 last:border-0 last:pb-0" key={note.id}><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-full bg-surface-muted text-sm font-bold text-primary">{initials(users.get(note.authorId)?.name ?? "Juniper")}</span><div><p className="font-semibold">{users.get(note.authorId)?.name ?? "Juniper user"}</p><p className="text-sm text-muted-foreground">{new Intl.DateTimeFormat("en-LK", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.createdAt))}</p></div></div><p className="mt-4 text-sm leading-6 text-muted-foreground">{note.content}</p></article>) : <p className="text-sm text-muted-foreground">No customer notes yet.</p>}</div></section><aside className="h-fit rounded-lg border bg-surface p-5 sm:p-6"><h2 className="text-lg font-semibold">Add customer note</h2><p className="mt-1 text-sm text-muted-foreground">Visible only on {customer.fullName}</p><form className="mt-5" onSubmit={save}><textarea className="min-h-40 w-full rounded-md border bg-surface px-3 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setContent(event.target.value)} placeholder="Write a customer update, decision or follow-up..." value={content} /><Button className="mt-4 w-full" disabled={!content.trim() || saving} type="submit"><Plus className="size-4" />{saving ? "Saving..." : "Save note"}</Button></form></aside></div>;
 }
 
@@ -75,10 +75,11 @@ function PaymentScheduleProgress({ schedules }: { schedules: Array<PaymentSchedu
   return <section className="mt-6 rounded-lg border bg-surface p-5 sm:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Payment schedule progress</h2><span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-semibold text-muted-foreground">{schedules.length} {schedules.length === 1 ? "stage" : "stages"}</span></div>{schedules.length ? <ol className="mt-6 grid grid-cols-1 border-t sm:grid-cols-2 sm:gap-x-6 lg:grid-cols-3 2xl:grid-cols-4">{schedules.map((schedule, index) => { const completed = schedule.principalPaid >= schedule.principalAmount; const current = !completed && (schedule.status === "due" || schedule.status === "overdue"); const label = completed ? "Completed" : index === 0 ? "Current" : "Upcoming"; return <li className="relative flex min-w-0 gap-4 border-b py-5" key={schedule.id}><div className="relative flex w-10 shrink-0 justify-center"><span aria-hidden="true" className={`absolute bottom-[-1.25rem] top-10 w-px bg-border sm:hidden ${index === schedules.length - 1 ? "hidden" : ""}`} /><span className={`relative z-10 grid size-10 shrink-0 place-items-center rounded-full border ${completed ? "border-success bg-success text-white" : current ? "border-primary bg-primary text-white" : "bg-surface-muted text-muted-foreground"}`}>{completed ? <Check className="size-5" /> : <Home className="size-4" />}</span></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Stage {String(index + 1).padStart(2, "0")}</p><span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${completed ? "bg-success/10 text-success" : current ? "bg-primary text-primary-foreground" : "bg-surface-muted text-muted-foreground"}`}>{label}</span></div><p className="mt-2 break-words text-sm font-semibold leading-5">{schedule.stage}</p><p className="mt-1 text-sm text-muted-foreground">{formatDate(schedule.dueDate)}</p></div></li>; })}</ol> : <p className="mt-6 text-sm text-muted-foreground">No payment stages are available yet.</p>}</section>;
 }
 
-export function CustomersPageClient({ customerId }: { customerId?: string }) {
-  const [database, setDatabase] = useState<MockDatabase | null>(null); const [createOpen, setCreateOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [collectionOpen, setCollectionOpen] = useState(false); const [tab, setTab] = useState<"overview" | "note">("overview"); const [toast, setToast] = useState<Toast>(null);
-  const refresh = async (message?: string) => { const next = await repository.getDatabase(); setDatabase(next); if (message) setToast({ message }); };
-  useEffect(() => { void repository.getDatabase().then(setDatabase); }, []);
+/** `initialData`: fetched server-side by the collections/customers page.tsx. See dashboard-page-client.tsx for why it stays optional. */
+export function CustomersPageClient({ customerId, initialData }: { customerId?: string; initialData?: MockDatabase }) {
+  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null); const [createOpen, setCreateOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [collectionOpen, setCollectionOpen] = useState(false); const [tab, setTab] = useState<"overview" | "note">("overview"); const [toast, setToast] = useState<Toast>(null);
+  const refresh = async (message?: string) => { const next = await getClientRepository().getDatabase(); setDatabase(next); if (message) setToast({ message }); };
+  useEffect(() => { if (initialData) return; void getClientRepository().getDatabase().then(setDatabase); }, [initialData]);
   const customer = database?.customers.find((candidate) => candidate.id === customerId) ?? null;
   const customerVillas = useMemo(() => database && customer ? villasForCustomer(database.villas, customer.id) : [], [database, customer]);
   if (!database) return <AppShell active="Customers"><p className="text-sm text-muted-foreground">Loading customers...</p></AppShell>;

@@ -31,6 +31,13 @@ export const collectionStatus = pgEnum("collection_status", ["confirmed", "super
 
 export const reminderStatus = pgEnum("reminder_status", ["awaiting_approval", "ready_to_send", "sent", "cancelled"]);
 export const reminderOrigin = pgEnum("reminder_origin", ["system", "user"]);
+/**
+ * Which schedule event queued a reminder — independent of which template's wording was
+ * used. A workspace has one 'overdue' template but two separate overdue reminders
+ * (first_reminder_day, second_reminder_day); the trigger is what tells them apart so the
+ * double-send guard does not collapse them into one.
+ */
+export const reminderTrigger = pgEnum("reminder_trigger", ["upcoming", "overdue_first", "overdue_second", "final_notice"]);
 export const deliveryStatus = pgEnum("delivery_status", ["pending", "delivered", "bounced", "failed"]);
 /** Mirrors `ReminderTemplate["type"]` in domain/types.ts — the names must match exactly. */
 export const templateType = pgEnum("template_type", [

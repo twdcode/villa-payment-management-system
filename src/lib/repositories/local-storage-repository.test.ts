@@ -154,4 +154,137 @@ describe("local storage repository", () => {
     expect(notification).toMatchObject({ type: "payment_recorded", expiresAt: "2026-09-04", href: "/collections" });
     expect(result.collection.receiptDocumentUrl).toBe("https://drive.google.com/example-receipt");
   });
+
+  it("creates and edits a project", async () => {
+    const repository = createLocalStorageRepository();
+    const created = await repository.createProject({ name: "Hilltop Villas", location: "Kandy", status: "active", plannedVillaCount: 10 });
+    expect(created).toMatchObject({ name: "Hilltop Villas", location: "Kandy", status: "active" });
+
+    const updated = await repository.updateProject(created.id, { name: "Hilltop Residences", location: "Kandy", status: "completed" });
+    expect(updated).toMatchObject({ id: created.id, name: "Hilltop Residences", status: "completed" });
+
+    const database = await repository.getDatabase();
+    expect(database.projects.find((project) => project.id === created.id)?.name).toBe("Hilltop Residences");
+  });
+
+  it("rejects a project with a blank name", async () => {
+    const repository = createLocalStorageRepository();
+    await expect(repository.createProject({ name: "  ", location: "Galle", status: "active" })).rejects.toThrow();
+  });
+
+  it("creates a customer, rejects a duplicate email, and edits it", async () => {
+    const repository = createLocalStorageRepository();
+    const created = await repository.createCustomer({ fullName: "Kasun Fernando", email: "kasun@example.com", phone: "+94 77 000 0000" });
+    expect(created).toMatchObject({ fullName: "Kasun Fernando", email: "kasun@example.com" });
+
+    await expect(repository.createCustomer({ fullName: "Other", email: "KASUN@EXAMPLE.COM", phone: "+94 77 111 1111" })).rejects.toThrow("already exists");
+
+    const updated = await repository.updateCustomer(created.id, { fullName: "Kasun J. Fernando", email: "kasun@example.com", phone: "+94 77 000 0000" });
+    expect(updated.fullName).toBe("Kasun J. Fernando");
+  });
+
+  it("finds villas scoped to a project and to a customer", async () => {
+    const repository = createLocalStorageRepository();
+    const database = await repository.getDatabase();
+    const anyVilla = database.villas[0];
+
+    const byProject = await repository.getVillas({ projectId: anyVilla.projectId });
+    expect(byProject.every((villa) => villa.projectId === anyVilla.projectId)).toBe(true);
+    expect(byProject.some((villa) => villa.id === anyVilla.id)).toBe(true);
+
+    if (anyVilla.customerId) {
+      const byCustomer = await repository.getVillas({ customerId: anyVilla.customerId });
+      expect(byCustomer.every((villa) => villa.customerId === anyVilla.customerId)).toBe(true);
+    }
+  });
+
+  it("re-derives interest from corrected values when a collection is edited (E10)", async () => {
+    const repository = createLocalStorageRepository();
+
+    // villa-oc-08's first stage is 9,300,000 due 2026-08-28 with no grace period —
+    // paying it in full on the due date settles it with zero interest.
+    const original = await repository.recordCollection({
+      projectId: "project-ocean",
+      villaId: "villa-oc-08",
+      customerId: "customer-priya",
+      paymentDate: "2026-08-28",
+      paymentMethod: "bank_transfer",
+      referenceNumber: "E10-ORIGINAL",
+      amount: 9_300_000,
+    });
+
+    const database = await repository.getDatabase();
+    const stage = database.schedules.find((schedule) => schedule.villaId === "villa-oc-08" && schedule.stage === "Reservation");
+    expect(stage?.principalPaid).toBe(9_300_000);
+
+    // Correction: the real amount was only 5,000,000 — the stage is no longer settled.
+    const corrected = await repository.updateCollection(
+      original.collection.id,
+      {
+        projectId: "project-ocean",
+        villaId: "villa-oc-08",
+        customerId: "customer-priya",
+        paymentDate: "2026-08-28",
+        paymentMethod: "bank_transfer",
+        referenceNumber: "E10-ORIGINAL",
+        amount: 5_000_000,
+      },
+      "Data entry correction",
+    );
+
+    const afterEdit = await repository.getDatabase();
+    const originalCollection = afterEdit.collections.find((collection) => collection.id === original.collection.id);
+    const newStage = afterEdit.schedules.find((schedule) => schedule.villaId === "villa-oc-08" && schedule.stage === "Reservation");
+
+    // Original retained and marked superseded, never deleted.
+    expect(originalCollection?.status).toBe("superseded");
+    expect(originalCollection?.supersededAt).toBeTruthy();
+
+    // Same receipt number carried to the replacement (C15).
+    const originalReceipt = afterEdit.receipts.find((receipt) => receipt.collectionId === original.collection.id);
+    const newReceipt = afterEdit.receipts.find((receipt) => receipt.collectionId === corrected.collection.id);
+    expect(newReceipt?.number).toBe(originalReceipt?.number);
+
+    // Re-derived from the corrected amount, not carried over from the original.
+    expect(newStage?.principalPaid).toBe(5_000_000);
+    expect(newStage && newStage.principalAmount - newStage.principalPaid).toBe(4_300_000);
+  });
+
+  it("rejects editing a collection without a reason", async () => {
+    const repository = createLocalStorageRepository();
+    const result = await repository.recordCollection({
+      projectId: "project-ocean",
+      villaId: "villa-oc-08",
+      customerId: "customer-priya",
+      paymentDate: "2026-08-28",
+      paymentMethod: "cash",
+      referenceNumber: "",
+      amount: 1_000_000,
+    });
+
+    await expect(
+      repository.updateCollection(
+        result.collection.id,
+        { projectId: "project-ocean", villaId: "villa-oc-08", customerId: "customer-priya", paymentDate: "2026-08-28", paymentMethod: "cash", referenceNumber: "", amount: 900_000 },
+        "",
+      ),
+    ).rejects.toThrow("reason");
+  });
+
+  it("rejects editing a collection that was already superseded", async () => {
+    const repository = createLocalStorageRepository();
+    const result = await repository.recordCollection({
+      projectId: "project-ocean",
+      villaId: "villa-oc-08",
+      customerId: "customer-priya",
+      paymentDate: "2026-08-28",
+      paymentMethod: "cash",
+      referenceNumber: "",
+      amount: 1_000_000,
+    });
+    const input = { projectId: "project-ocean", villaId: "villa-oc-08", customerId: "customer-priya", paymentDate: "2026-08-28", paymentMethod: "cash" as const, referenceNumber: "", amount: 900_000 };
+
+    await repository.updateCollection(result.collection.id, input, "First correction");
+    await expect(repository.updateCollection(result.collection.id, input, "Second correction")).rejects.toThrow("already been corrected");
+  });
 });

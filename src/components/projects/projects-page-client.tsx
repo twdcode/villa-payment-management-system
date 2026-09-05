@@ -9,15 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Project, ProjectStatus, User } from "@/lib/domain/types";
+import type { MockDatabase, Project, ProjectStatus, User } from "@/lib/domain/types";
 import { projectStatusLabels } from "@/lib/domain/status-labels";
 import { formatLkrCompact } from "@/lib/formatters";
 import { can } from "@/lib/permissions/roles";
 import { deriveProjectSummaries, type ProjectSummary } from "@/lib/projects/project-summary";
-import { getRepository } from "@/lib/repositories";
+import { getClientRepository } from "@/lib/repositories/client";
+import { createProjectAction, updateProjectAction } from "@/lib/actions/projects";
 import { errorMessage } from "@/lib/errors";
 
-const repository = getRepository();
 
 type ProjectFormValues = { name: string; location: string; plannedVillaCount: string; status: ProjectStatus };
 
@@ -84,8 +84,8 @@ function ProjectFormDialog({ onOpenChange, onSaved, open, project }: { onOpenCha
     setIsSaving(true);
     try {
       const savedProject = isEditing
-        ? await repository.updateProject(project.id, { name: values.name, location: values.location, status: values.status })
-        : await repository.createProject({ name: values.name, location: values.location, status: "active", plannedVillaCount: Number(values.plannedVillaCount) });
+        ? await updateProjectAction(project.id, { name: values.name, location: values.location, status: values.status })
+        : await createProjectAction({ name: values.name, location: values.location, status: "active", plannedVillaCount: Number(values.plannedVillaCount) });
       onSaved(savedProject, isEditing ? "Project updated successfully." : "Project created successfully.");
       onOpenChange(false);
     } catch (reason) {
@@ -114,19 +114,21 @@ function ProjectFormDialog({ onOpenChange, onSaved, open, project }: { onOpenCha
   );
 }
 
-export function ProjectsPageClient() {
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [user, setUser] = useState<User | null>(null);
+/** `initialData`: fetched server-side by `app/projects/page.tsx`. See dashboard-page-client.tsx for why it stays optional. */
+export function ProjectsPageClient({ initialData }: { initialData?: { database: MockDatabase; currentUser: User } } = {}) {
+  const [projects, setProjects] = useState<ProjectSummary[]>(initialData ? deriveProjectSummaries(initialData.database) : []);
+  const [user, setUser] = useState<User | null>(initialData?.currentUser ?? null);
   const [status, setStatus] = useState<ProjectStatus>("active");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   useEffect(() => {
+    if (initialData) return;
     let active = true;
-    void Promise.all([repository.getDatabase(), repository.getCurrentUser()]).then(([database, currentUser]) => {
+    void Promise.all([getClientRepository().getDatabase(), getClientRepository().getCurrentUser()]).then(([database, currentUser]) => {
       if (!active) return;
       setProjects(deriveProjectSummaries(database));
       setUser(currentUser);
@@ -137,7 +139,7 @@ export function ProjectsPageClient() {
       setLoading(false);
     });
     return () => { active = false; };
-  }, []);
+  }, [initialData]);
 
   const visibleProjects = useMemo(() => projects.filter((summary) => summary.project.status === status), [projects, status]);
   const canManageProjects = user ? can(user.role, "manage_projects") : false;

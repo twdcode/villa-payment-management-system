@@ -10,11 +10,10 @@ import { DEMO_TODAY } from "@/lib/config/demo";
 import type { MockDatabase, ReminderApproval } from "@/lib/domain/types";
 import { calculateVillaFinancials, paymentStatus, principalOutstanding } from "@/lib/finance/calculations";
 import { formatLkr } from "@/lib/formatters";
-import { getRepository } from "@/lib/repositories";
+import { reviewReminderApprovalAction } from "@/lib/actions/reminders";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { errorMessage } from "@/lib/errors";
 
-const repository = getRepository();
 
 const reviewSchema = z.object({
   sendDate: z.string().min(1, "Select a reminder send date."),
@@ -55,7 +54,7 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
     setSaving(action);
     setError("");
     try {
-      await repository.reviewReminderApproval(approval.id, { ...parsed.data, action });
+      await reviewReminderApprovalAction(approval.id, { ...parsed.data, action });
       onSuccess(action === "send" ? "Reminder sent successfully." : "Reminder draft saved successfully.");
     } catch (reason) {
       setError(errorMessage(reason, "Unable to update this reminder."));

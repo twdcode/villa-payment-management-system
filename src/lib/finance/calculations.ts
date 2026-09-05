@@ -56,11 +56,38 @@ export function overdueDays(schedule: PaymentSchedule, today: string) {
   return today > graceEnd ? daysBetween(graceEnd, today) : 0;
 }
 
+/**
+ * The date interest has already been charged up to — the point new accrual starts from.
+ *
+ * Falls back to grace-end (or the due date, under `from_due_date`) when nothing has been
+ * charged yet. Never earlier than that start, so an anchor cannot reach back and create
+ * interest for days inside the grace period.
+ */
+function accrualStart(schedule: PaymentSchedule, terms: InterestTerms) {
+  const start = terms.interestStart === "from_due_date"
+    ? schedule.dueDate
+    : addDays(schedule.dueDate, schedule.gracePeriodDays);
+  const anchor = schedule.interestChargedTo;
+  return anchor && anchor > start ? anchor : start;
+}
+
+/**
+ * Total interest on a stage: what has already been CHARGED, plus accrual over the days
+ * since. Mirrors `v_stage_position` in `drizzle/0004_interest_accrual.sql` exactly — the
+ * two must agree, because from Phase 6 the server's figure is the one that gets stored
+ * and this becomes preview-only (C8).
+ *
+ * The charged portion is a stored fact and is never recomputed. Recomputing it was the
+ * bug: after a partial payment the formula applied the reduced balance to days when the
+ * balance was higher, producing a figure below what the customer had already paid, which
+ * then clamped to zero and stalled accrual for weeks.
+ */
 export function accruedInterest(schedule: PaymentSchedule, terms: InterestTerms, today: string) {
   if (!isPaymentScheduleReady(schedule)) return 0;
-  const days = terms.interestStart === "from_due_date" ? daysBetween(schedule.dueDate, today) : overdueDays(schedule, today);
+  const charged = schedule.interestCharged ?? 0;
+  const days = daysBetween(accrualStart(schedule, terms), today);
   const overduePrincipal = principalOutstanding(schedule);
-  return roundMoney(overduePrincipal * terms.monthlyRate * days / terms.proRataDivisor);
+  return roundMoney(charged + overduePrincipal * terms.monthlyRate * days / terms.proRataDivisor);
 }
 
 export type AllocationResult = {
@@ -90,8 +117,13 @@ export function allocatePayment(
   for (const schedule of updatedSchedules) {
     if (remaining <= 0 || principalOutstanding(schedule) === 0) continue;
 
+    // Charge interest up to the payment date and freeze it. `accruedInterest` already
+    // includes everything charged before, so this is the running total, not an increment.
+    // No Math.max clamp: the figure can only grow, so a clamp would only ever hide a bug.
     const liveInterest = accruedInterest(schedule, terms, today);
-    schedule.interestAccrued = Math.max(schedule.interestAccrued, liveInterest);
+    schedule.interestAccrued = liveInterest;
+    schedule.interestCharged = liveInterest;
+    schedule.interestChargedTo = today;
     const interestOutstanding = roundMoney(Math.max(0, schedule.interestAccrued - schedule.interestPaid));
     const principalDue = principalOutstanding(schedule);
     let interestAmount = 0;
@@ -127,7 +159,9 @@ export function calculateVillaFinancials(schedules: PaymentSchedule[], terms: In
   return schedules.reduce<VillaFinancials>(
     (totals, schedule) => {
       const outstanding = principalOutstanding(schedule);
-      const interest = Math.max(schedule.interestAccrued, accruedInterest(schedule, terms, today));
+      // `accruedInterest` now already includes the charged portion, so it is never below
+      // the stored figure — the old Math.max was papering over the two disagreeing.
+      const interest = accruedInterest(schedule, terms, today);
       return {
         totalValue: roundMoney(totals.totalValue + schedule.principalAmount),
         principalCollected: roundMoney(totals.principalCollected + schedule.principalPaid),

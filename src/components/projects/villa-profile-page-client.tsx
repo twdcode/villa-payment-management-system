@@ -18,12 +18,13 @@ import { interestOutstanding, isPaymentScheduleReady, principalOutstanding, tota
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
 import { can } from "@/lib/permissions/roles";
 import type { PaymentScheduleUpdateInput } from "@/lib/repositories/contracts";
-import { getRepository } from "@/lib/repositories";
+import { getClientRepository } from "@/lib/repositories/client";
+import { updatePaymentScheduleAction, updateVillaInterestTermsAction, cancelVillaAction, deleteVillaPermanentlyAction, addVillaNoteAction, addVillaDocumentAction } from "@/lib/actions/villas";
 import { resolveInterestTerms, storedInterestTerms } from "@/lib/domain/interest-terms";
 import { errorMessage } from "@/lib/errors";
 import { percentToRate, rateToPercent } from "@/lib/domain/rate";
+import { useCurrentUser } from "@/components/auth/current-user-provider";
 
-const repository = getRepository();
 
 const documentLinkSchema = z.object({
   name: z.string().trim().min(1, "Enter a document name."),
@@ -75,7 +76,7 @@ function PaymentScheduleDialog({ onOpenChange, onSaved, open, schedules, villa }
     setError("");
     setSaving(true);
     try {
-      await repository.updatePaymentSchedule(villa.id, drafts.map((draft) => ({ id: draft.id, stage: draft.stage, deliverables: draft.deliverables, dueDate: draft.dueDate, principalAmount: draft.principalAmount, gracePeriodDays: draft.gracePeriodDays })));
+      await updatePaymentScheduleAction(villa.id, drafts.map((draft) => ({ id: draft.id, stage: draft.stage, deliverables: draft.deliverables, dueDate: draft.dueDate, principalAmount: draft.principalAmount, gracePeriodDays: draft.gracePeriodDays })));
       onOpenChange(false);
       onSaved();
     } catch (reason) {
@@ -111,7 +112,7 @@ function InterestTermsDialog({ onOpenChange, onSaved, open, terms: initialTerms,
     setError("");
     setSaving(true);
     try {
-      await repository.updateVillaInterestTerms(villa.id, { chargeLatePaymentInterest, interestTerms: terms });
+      await updateVillaInterestTermsAction(villa.id, { chargeLatePaymentInterest, interestTerms: terms });
       onOpenChange(false);
       onSaved();
     } catch (reason) {
@@ -160,11 +161,11 @@ function VillaSettingsPanel({ database, onCancelled, onDeleted, villa }: { datab
     setSaving(true);
     try {
       if (action === "cancel") {
-        await repository.cancelVilla(villa.id, reason);
+        await cancelVillaAction(villa.id, reason);
         setAction(null);
         onCancelled();
       } else {
-        await repository.deleteVillaPermanently(villa.id, reason);
+        await deleteVillaPermanentlyAction(villa.id, reason);
         setAction(null);
         onDeleted();
       }
@@ -197,7 +198,7 @@ function NoteComposer({ currentUser, onSaved, villa }: { currentUser: MockDataba
     setError("");
     setSaving(true);
     try {
-      await repository.addVillaNote(villa.id, content);
+      await addVillaNoteAction(villa.id, content);
       setContent("");
       onSaved();
     } catch (reason) {
@@ -215,7 +216,7 @@ function VillaDocumentsTab({ database, onSaved, villa }: { database: MockDatabas
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const documents = database.documents.filter((document) => document.villaId === villa.id);
-  const currentUser = database.users.find((user) => user.id === "user-vishal") ?? database.users[0];
+  const currentUser = useCurrentUser() ?? undefined;
   const canManageDocuments = currentUser ? can(currentUser.role, "manage_documents") : false;
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
@@ -225,7 +226,7 @@ function VillaDocumentsTab({ database, onSaved, villa }: { database: MockDatabas
     setError("");
     setSaving(true);
     try {
-      await repository.addVillaDocument(villa.id, parsed.data);
+      await addVillaDocumentAction(villa.id, parsed.data);
       setForm({ name: "", date: "", url: "" });
       onSaved();
     } catch (reason) {
@@ -240,7 +241,7 @@ function VillaDocumentsTab({ database, onSaved, villa }: { database: MockDatabas
 
 function VillaNotesTab({ database, onSaved, villa }: { database: MockDatabase; onSaved: () => void; villa: Villa }) {
   const notes = database.notes.filter((note) => note.villaId === villa.id && !note.deletedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const currentUser = database.users.find((user) => user.id === "user-vishal") ?? database.users[0];
+  const currentUser = useCurrentUser() ?? undefined;
   const groups = notes.reduce<Record<string, typeof notes>>((result, note) => { const key = note.createdAt.slice(0, 10); (result[key] ??= []).push(note); return result; }, {});
 
   return <section className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(20rem,0.85fr)]"><div className="rounded-2xl border bg-surface p-6 sm:p-7">{Object.keys(groups).length ? Object.entries(groups).map(([date, entries]) => <section className="border-t pt-5 first:border-t-0 first:pt-0" key={date}><h2 className="text-lg font-semibold text-muted-foreground">{date.replaceAll("-", "/")}</h2>{entries.map((note) => { const author = database.users.find((user) => user.id === note.authorId); return <article className="mt-5" key={note.id}><div className="flex items-center gap-3"><span className="grid size-12 place-items-center rounded-full bg-surface-muted text-sm font-bold text-primary">{author?.name.split(" ").map((part) => part[0]).join("").slice(0, 2) ?? "JV"}</span><div><h3 className="font-semibold">{author?.name ?? "Juniper team"}</h3><p className="mt-1 text-sm text-muted-foreground">{new Intl.DateTimeFormat("en-LK", { year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit" }).format(new Date(note.createdAt))}</p></div></div><p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{note.content}</p></article>; })}</section>) : <div className="grid min-h-72 place-items-center text-center"><div><FileText className="mx-auto size-8 text-accent" /><p className="mt-3 font-semibold">No villa notes yet</p><p className="mt-1 text-sm text-muted-foreground">Add the first update for this villa.</p></div></div>}</div><NoteComposer currentUser={currentUser} onSaved={onSaved} villa={villa} /></section>;
@@ -267,7 +268,7 @@ function ConfiguredVillaProfile({ database, onCollectionSaved, onInterestSaved, 
   const [scheduleEditorOpen, setScheduleEditorOpen] = useState(false);
   const [interestEditorOpen, setInterestEditorOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
-  const role = database.users.find((user) => user.id === "user-vishal")?.role ?? "super_admin";
+  const role = useCurrentUser()?.role ?? "view_only";
   const canEditSchedule = role !== "view_only";
   const canManageVilla = role === "super_admin";
   const [activeTab, setActiveTab] = useState<"overview" | "documents" | "notes" | "settings">("overview");
@@ -293,21 +294,23 @@ function ConfiguredVillaProfile({ database, onCollectionSaved, onInterestSaved, 
   </>;
 }
 
-export function VillaProfilePageClient({ projectId, villaId }: { projectId: string; villaId: string }) {
-  const [database, setDatabase] = useState<MockDatabase | null>(null);
+/** `initialData`: fetched server-side by `app/projects/[projectId]/villas/[villaId]/page.tsx`. See dashboard-page-client.tsx for why it stays optional. */
+export function VillaProfilePageClient({ projectId, villaId, initialData }: { projectId: string; villaId: string; initialData?: MockDatabase }) {
+  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
 
   useEffect(() => {
+    if (initialData) return;
     let active = true;
-    void repository.getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(errorMessage(reason, "Unable to load villa.")); });
+    void getClientRepository().getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(errorMessage(reason, "Unable to load villa.")); });
     return () => { active = false; };
-  }, []);
+  }, [initialData]);
 
   const project = database?.projects.find((candidate) => candidate.id === projectId) ?? null;
   const summary = useMemo(() => database ? deriveVillaSummaries(database, projectId).find((item) => item.villa.id === villaId) ?? null : null, [database, projectId, villaId]);
   const placeholderNumber = villaId.startsWith("draft-") ? villaId.replace("draft-", "").padStart(2, "0") : "";
   const searchParams = useSearchParams();
 
-  return <AppShell active="Projects & Villas"><div className="max-w-none">{feedback && <div className="fixed right-4 top-4 z-40 flex w-[calc(100%-2rem)] max-w-xl items-center justify-between gap-3 rounded-lg border border-success bg-success px-4 py-4 text-sm font-medium text-primary-foreground shadow-lg" role="status"><span className="flex items-center gap-3"><Info className="size-5" />{feedback}</span><button aria-label="Dismiss success message" className="rounded-md p-1 hover:bg-primary-foreground/15" onClick={() => setFeedback("")}><X className="size-4" /></button></div>}{searchParams.get("created") === "1" && <div className="mb-6 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-semibold text-success" role="status"><CheckCircle2 className="size-5" />Villa profile created successfully.</div>}{error ? <p className="rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p> : !database ? <div className="h-96 animate-pulse rounded-2xl border bg-surface-muted" /> : !project ? <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><h1 className="text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href="/projects">Return to projects</Link></div></div> : summary ? <ConfiguredVillaProfile database={database} onCollectionSaved={(message) => { setFeedback(message); void repository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} onInterestSaved={() => { setFeedback("Successfully updated interest terms."); void repository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} onScheduleSaved={() => { setFeedback("Successfully updated payment schedule."); void repository.getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} projectId={projectId} projectName={project.name} summary={summary} /> : placeholderNumber ? <EmptyVillaProfile number={placeholderNumber} projectId={projectId} projectName={project.name} /> : <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><FileText aria-hidden="true" className="mx-auto size-8 text-accent" /><h1 className="mt-4 text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href={`/projects/${projectId}`}>Return to villas</Link></div></div>}</div></AppShell>;
+  return <AppShell active="Projects & Villas"><div className="max-w-none">{feedback && <div className="fixed right-4 top-4 z-40 flex w-[calc(100%-2rem)] max-w-xl items-center justify-between gap-3 rounded-lg border border-success bg-success px-4 py-4 text-sm font-medium text-primary-foreground shadow-lg" role="status"><span className="flex items-center gap-3"><Info className="size-5" />{feedback}</span><button aria-label="Dismiss success message" className="rounded-md p-1 hover:bg-primary-foreground/15" onClick={() => setFeedback("")}><X className="size-4" /></button></div>}{searchParams.get("created") === "1" && <div className="mb-6 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-semibold text-success" role="status"><CheckCircle2 className="size-5" />Villa profile created successfully.</div>}{error ? <p className="rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p> : !database ? <div className="h-96 animate-pulse rounded-2xl border bg-surface-muted" /> : !project ? <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><h1 className="text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href="/projects">Return to projects</Link></div></div> : summary ? <ConfiguredVillaProfile database={database} onCollectionSaved={(message) => { setFeedback(message); void getClientRepository().getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} onInterestSaved={() => { setFeedback("Successfully updated interest terms."); void getClientRepository().getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} onScheduleSaved={() => { setFeedback("Successfully updated payment schedule."); void getClientRepository().getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} projectId={projectId} projectName={project.name} summary={summary} /> : placeholderNumber ? <EmptyVillaProfile number={placeholderNumber} projectId={projectId} projectName={project.name} /> : <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><FileText aria-hidden="true" className="mx-auto size-8 text-accent" /><h1 className="mt-4 text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href={`/projects/${projectId}`}>Return to villas</Link></div></div>}</div></AppShell>;
 }

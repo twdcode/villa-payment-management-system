@@ -56,6 +56,8 @@ export const appSettings = pgTable(
     timezone: text("timezone").notNull().default("Asia/Colombo"),
     dateFormat: text("date_format").notNull().default("dd/MM/yyyy"),
     receiptPrefix: text("receipt_prefix").notNull().default("JVM-RCP"),
+    /** O7 — Reply-To on every reminder. `From` is the verified Resend domain; only this is per-workspace. */
+    replyToEmail: text("reply_to_email"),
     updatedBy: actor("updated_by"),
     updatedAt: updatedAt(),
   },

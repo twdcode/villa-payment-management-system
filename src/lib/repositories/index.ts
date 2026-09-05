@@ -1,26 +1,33 @@
+import "server-only";
+
 import { createLocalStorageRepository } from "@/lib/repositories/local-storage-repository";
-import { createSupabaseRepository } from "@/lib/repositories/supabase-repository";
+import { getDataSource } from "@/lib/repositories/data-source";
 
 import type { Repository } from "./contracts";
-
-export type DataSource = "mock" | "supabase";
-
-/**
- * Which implementation the app runs against. Defaults to `mock` so a missing or misspelt
- * env var can never silently point production code at an unfinished backend.
- */
-export function getDataSource(): DataSource {
-  return process.env.NEXT_PUBLIC_DATA_SOURCE === "supabase" ? "supabase" : "mock";
-}
 
 let instance: Repository | null = null;
 
 /**
- * The single way to reach the data layer. Nothing outside this folder should import a
- * concrete repository — swapping the backend has to be one env var, not 50 edits.
+ * The single way to reach the data layer, for code that already runs on the server —
+ * a Server Component, a Server Action, a route handler.
+ *
+ * SERVER ONLY, enforced by the `server-only` import above: bundling this into a Client
+ * Component now fails the build instead of silently shipping database credentials.
+ *
+ * Client Components must use `getClientRepository()` in `client.ts` instead — a separate
+ * file with no path to `supabase-repository.ts`, static or dynamic. That separation, not
+ * a runtime `if`, is what actually keeps the Supabase implementation out of the browser
+ * bundle: a bundler includes a module in the client graph if it is reachable from a
+ * client component through any path, including a conditional dynamic import.
  */
-export function getRepository(): Repository {
-  instance ??= getDataSource() === "supabase" ? createSupabaseRepository() : createLocalStorageRepository();
+export async function getRepository(): Promise<Repository> {
+  if (instance) return instance;
+  if (getDataSource() === "supabase") {
+    const { createSupabaseRepository } = await import("@/lib/repositories/supabase-repository");
+    instance = createSupabaseRepository();
+  } else {
+    instance = createLocalStorageRepository();
+  }
   return instance;
 }
 
@@ -29,5 +36,7 @@ export function resetRepository(): void {
   instance = null;
 }
 
+export { getDataSource } from "@/lib/repositories/data-source";
+export type { DataSource } from "@/lib/repositories/data-source";
 export { DATABASE_UPDATED_EVENT } from "@/lib/repositories/events";
 export type { Repository } from "./contracts";

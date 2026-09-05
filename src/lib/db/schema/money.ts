@@ -54,7 +54,18 @@ export const paymentStages = pgTable(
     gracePeriodDays: integer("grace_period_days").notNull().default(0),
     principalPaid: money("principal_paid").notNull().default("0"),
     interestPaid: money("interest_paid").notNull().default("0"),
+    /**
+     * Cumulative interest CHARGED to this stage — a stored fact, rounded once at the
+     * point of charge and never recomputed from the formula afterwards (E8).
+     *
+     * Interest is path-dependent: what is owed depends on the balance that applied on
+     * each day, which cannot be recovered from today's balance. Deriving it live meant a
+     * partial payment silently erased interest for days already charged. See
+     * `drizzle/0004_interest_accrual.sql`.
+     */
     interestCharged: money("interest_charged").notNull().default("0"),
+    /** Interest is charged up to this date. NULL = nothing charged yet, so accrual starts at grace-end. */
+    interestChargedTo: date("interest_charged_to"),
     createdBy: actor("created_by").references(() => users.id),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -67,6 +78,9 @@ export const paymentStages = pgTable(
     check("payment_stages_paid_not_negative", sql`${table.principalPaid} >= 0 AND ${table.interestPaid} >= 0`),
     // Cannot pay more principal than the stage is worth.
     check("payment_stages_no_overpay", sql`${table.principalPaid} <= ${table.principalAmount}`),
+    // Interest received can never exceed interest charged. The old live-derived model
+    // could violate this silently; making it a constraint means the ledger cannot drift.
+    check("payment_stages_charged_covers_paid", sql`${table.interestPaid} <= ${table.interestCharged} + 0.005`),
   ],
 );
 
