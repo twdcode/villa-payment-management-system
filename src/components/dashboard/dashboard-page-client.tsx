@@ -7,7 +7,6 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
   CircleDollarSign,
   Clock3,
   FileWarning,
@@ -19,6 +18,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { buildDashboardSnapshot, type DashboardPaymentStatus } from "@/lib/dashboard/snapshot";
 import type { MockDatabase } from "@/lib/domain/types";
 import { formatLkr, formatLkrCompact, numberToWordsLkr } from "@/lib/formatters";
@@ -48,11 +48,10 @@ const initials = (name: string) => name.split(" ").map((part) => part[0]).join("
 
 function ScopeSelect({ label, children, onChange, value }: { label: string; children: React.ReactNode; onChange: (value: string) => void; value: string }) {
   return (
-    <label className="relative min-w-40">
-      <span className="sr-only">{label}</span>
-      <select aria-label={label} className="h-11 w-full appearance-none rounded-md border bg-surface px-4 pr-10 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => onChange(event.target.value)} value={value}>{children}</select>
-      <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-    </label>
+    <Select onValueChange={onChange} value={value}>
+      <SelectTrigger aria-label={label} className="h-11 min-w-40 px-4 text-sm font-semibold"><SelectValue /></SelectTrigger>
+      <SelectContent>{children}</SelectContent>
+    </Select>
   );
 }
 
@@ -158,7 +157,7 @@ export function DashboardPageClient({ database }: { database: MockDatabase }) {
 
   return (
     <AppShell active="Dashboard">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-semibold">Dashboard</h1><p className="mt-2 text-muted-foreground">Your live portfolio and collection priorities as at {formatDate(database.today)}.</p></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><ScopeSelect label="Filter dashboard by project" onChange={(value) => { setProjectId(value); setVillaId("all"); }} value={projectId}><option value="all">All projects</option>{database.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</ScopeSelect><ScopeSelect label="Filter dashboard by villa" onChange={setVillaId} value={villaId}><option value="all">All villas</option>{availableVillas.map((villa) => <option key={villa.id} value={villa.id}>{villaLabel(villa.number)}</option>)}</ScopeSelect></div></div>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-semibold">Dashboard</h1><p className="mt-2 text-muted-foreground">Your live portfolio and collection priorities as at {formatDate(database.today)}.</p></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><ScopeSelect label="Filter dashboard by project" onChange={(value) => { setProjectId(value); setVillaId("all"); }} value={projectId}><SelectItem value="all">All projects</SelectItem>{database.projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}</ScopeSelect><ScopeSelect label="Filter dashboard by villa" onChange={setVillaId} value={villaId}><SelectItem value="all">All villas</SelectItem>{availableVillas.map((villa) => <SelectItem key={villa.id} value={villa.id}>{villaLabel(villa.number)}</SelectItem>)}</ScopeSelect></div></div>
       <section aria-label="Portfolio summary" className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}</section>
       <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,2.1fr)_minmax(18rem,.95fr)]"><div className="space-y-6"><InterestPanel finalNotices={snapshot.finalNoticeCount} interestCollected={snapshot.interestCollected} interestOutstanding={snapshot.interestOutstanding} reminderCases={snapshot.reminderCaseCount} /><CollectionOverview collected={snapshot.totalCollected} due={snapshot.currentlyDue} future={snapshot.futureOutstanding} overdue={snapshot.overdue} total={snapshot.totalProjectValue} /><UpcomingPayments payments={snapshot.payments} /><CustomerNotes notes={snapshot.customerNotes} /></div><aside className="space-y-6"><AttentionPanel finalCount={snapshot.finalNoticeCount} overdueCount={snapshot.overduePaymentCount} reminderCount={snapshot.reminderCaseCount} total={snapshot.attentionTotal} upcomingCount={snapshot.upcomingPaymentCount} /><LargestOutstanding villas={snapshot.largestOutstanding} />{snapshot.scopedVillaCount === 0 && <div className="rounded-lg border bg-surface p-6 text-center"><Landmark className="mx-auto size-7 text-muted-foreground" /><p className="mt-3 font-semibold">No active villas in this view</p><p className="mt-1 text-sm text-muted-foreground">Choose another project or villa to review its portfolio data.</p></div>}<div className="rounded-lg border bg-surface p-5"><div className="flex items-center gap-3"><CircleDollarSign className="size-5 text-success" /><p className="font-semibold">Data reconciled</p></div><p className="mt-2 text-sm text-muted-foreground">Values are calculated from active villa schedules and recorded stage payments.</p></div></aside></div>
     </AppShell>

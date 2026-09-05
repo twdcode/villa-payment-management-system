@@ -1,14 +1,16 @@
 "use client";
 
-import { ChevronDown, Eye, Search } from "lucide-react";
+import { Eye, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { MockDatabase, VillaOperationalStatus } from "@/lib/domain/types";
 import { villaStatusLabels } from "@/lib/domain/status-labels";
+import { matchesVillaSearch } from "@/lib/domain/villa-search";
 import { formatLkr } from "@/lib/formatters";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
 
@@ -69,12 +71,11 @@ export function VillasPageClient({ database }: { database: MockDatabase }) {
   const [projectId, setProjectId] = useState<string>("all");
 
   const rows = useMemo(() => deriveVillaSummaries(database), [database]);
-  const visibleRows = useMemo(() => rows.filter((summary) => {
-    const query = search.trim().toLocaleLowerCase();
-    return (status === "all" || summary.villa.operationalStatus === status) &&
-      (projectId === "all" || summary.villa.projectId === projectId) &&
-      (!query || summary.villa.number.toLocaleLowerCase().includes(query) || summary.customer?.fullName.toLocaleLowerCase().includes(query));
-  }), [rows, search, status, projectId]);
+  const visibleRows = useMemo(() => rows.filter((summary) =>
+    (status === "all" || summary.villa.operationalStatus === status) &&
+    (projectId === "all" || summary.villa.projectId === projectId) &&
+    matchesVillaSearch(search, summary.villa.number, summary.customer?.fullName),
+  ), [rows, search, status, projectId]);
 
   return (
     <AppShell active="Villas">
@@ -83,8 +84,8 @@ export function VillasPageClient({ database }: { database: MockDatabase }) {
           <div><h1 className="font-display text-3xl font-semibold">Villas</h1><p className="mt-2 text-base text-muted-foreground">Every villa across every project, in one place.</p></div>
           <div className="mt-9 flex flex-col gap-4 lg:flex-row">
             <label className="relative max-w-2xl flex-1"><Search aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" /><Input className="h-14 border-accent pl-12 text-base" onChange={(event) => setSearch(event.target.value)} placeholder="Search villa name or customer name" type="search" value={search} /></label>
-            <label className="relative w-full lg:w-60"><span className="sr-only">Project</span><select className="h-14 w-full appearance-none rounded-xl border border-accent bg-surface px-5 text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setProjectId(event.target.value)} value={projectId}><option value="all">All projects</option>{database.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" /></label>
-            <label className="relative w-full lg:w-60"><span className="sr-only">Villa status</span><select className="h-14 w-full appearance-none rounded-xl border border-accent bg-surface px-5 text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setStatus(event.target.value as StatusFilter)} value={status}><option value="all">Status</option>{Object.entries(villaStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" /></label>
+            <Select onValueChange={setProjectId} value={projectId}><SelectTrigger aria-label="Project" className="h-14 w-full rounded-xl border-accent px-5 text-base font-semibold lg:w-60"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All projects</SelectItem>{database.projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}</SelectContent></Select>
+            <Select onValueChange={(next) => setStatus(next as StatusFilter)} value={status}><SelectTrigger aria-label="Villa status" className="h-14 w-full rounded-xl border-accent px-5 text-base font-semibold lg:w-60"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Status</SelectItem>{Object.entries(villaStatusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
           </div>
           {visibleRows.length === 0 ? <div className="mt-5 grid min-h-64 place-items-center rounded-xl border border-dashed bg-surface px-6 text-center"><div><Eye aria-hidden="true" className="mx-auto size-7 text-accent" /><h2 className="mt-4 font-semibold">No matching villas</h2><p className="mt-2 text-sm text-muted-foreground">Try another search, project or status.</p></div></div> : <div className="mt-5"><VillaTable database={database} rows={visibleRows} /></div>}
         </>

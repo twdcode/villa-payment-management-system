@@ -6,6 +6,7 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -105,7 +106,7 @@ function ProjectFormDialog({ onOpenChange, onSaved, open, project }: { onOpenCha
         <form className="space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-2"><label className="text-sm font-semibold text-muted-foreground" htmlFor="project-name">Project name</label><Input className="h-15" id="project-name" onChange={(event) => setValues({ ...values, name: event.target.value })} required value={values.name} /></div>
           <div className="space-y-2"><label className="text-sm font-semibold text-muted-foreground" htmlFor="project-location">Location</label><Input className="h-15" id="project-location" onChange={(event) => setValues({ ...values, location: event.target.value })} required value={values.location} /></div>
-          {isEditing ? <div className="space-y-2"><label className="text-sm font-semibold text-muted-foreground" htmlFor="project-status">Project status</label><select className="h-15 w-full rounded-md border bg-input px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" id="project-status" onChange={(event) => setValues({ ...values, status: event.target.value as ProjectStatus })} value={values.status}><option value="active">Active</option><option value="completed">Complete</option></select></div> : <div className="space-y-2"><label className="text-sm font-semibold text-muted-foreground" htmlFor="planned-villa-count">Number of villas</label><Input className="h-15" id="planned-villa-count" min="1" onChange={(event) => setValues({ ...values, plannedVillaCount: event.target.value })} required type="number" value={values.plannedVillaCount} /></div>}
+          {isEditing ? <div className="space-y-2"><label className="text-sm font-semibold text-muted-foreground" htmlFor="project-status">Project status</label><Select onValueChange={(next) => setValues({ ...values, status: next as ProjectStatus })} value={values.status}><SelectTrigger className="h-15" id="project-status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="completed">Complete</SelectItem></SelectContent></Select></div> : <div className="space-y-2"><label className="text-sm font-semibold text-muted-foreground" htmlFor="planned-villa-count">Number of villas</label><Input className="h-15" id="planned-villa-count" min="1" onChange={(event) => setValues({ ...values, plannedVillaCount: event.target.value })} required type="number" value={values.plannedVillaCount} /></div>}
           {error && <p className="rounded-md bg-danger/10 px-3 py-2 text-sm font-medium text-danger" role="alert">{error}</p>}
           <div className="flex justify-end pt-2"><Button disabled={isSaving} size="lg" type="submit">{isSaving ? "Saving..." : isEditing ? "Save changes" : "Create project"}</Button></div>
         </form>

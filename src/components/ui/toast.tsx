@@ -65,31 +65,32 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       {/* `aria-live="polite"` so a screen reader announces the confirmation without
           interrupting whatever the user is doing. */}
-      {/* Bottom-right on desktop, bottom-centre above the mobile nav bar on small screens.
-          Deliberately not top-right: the header there holds the search field and bell, and
-          the row directly under it holds each page's primary action ("Add Project" sits at
-          y=128-176 on a 1440px viewport), so a top-anchored toast covers a control the user
-          is likely reaching for. The bottom corner is empty on every page.
+      {/* Top-right, sitting in the header band, as the Figma flows show. The header's own
+          controls were moved left to clear this corner, so nothing underneath is covered.
+          On small screens it spans the width below the header instead, where the bottom is
+          occupied by the mobile nav bar.
           `pointer-events-none` on the stack keeps clicks passing through to the page;
           only the toast itself is interactive. */}
-      <div aria-live="polite" className="pointer-events-none fixed inset-x-4 bottom-24 z-100 flex flex-col items-center gap-3 sm:inset-x-auto sm:right-6 sm:items-end sm:max-w-md lg:bottom-6">
+      <div aria-live="polite" className="pointer-events-none fixed inset-x-4 top-4 z-100 flex flex-col items-center gap-3 sm:inset-x-auto sm:right-6 sm:top-5 sm:items-end sm:max-w-md">
         {toasts.map((item) => {
           const Icon = item.tone === "error" ? CircleAlert : Info;
           return (
             <div
-              className={`pointer-events-auto flex items-start gap-3 rounded-lg border px-4 py-3.5 text-sm font-medium shadow-lg ${
+              // Opaque fills, not the /10 tints used before: the toast overlaps page content
+              // at this position, and a translucent panel let text show through it.
+              className={`pointer-events-auto flex w-full items-center gap-3 rounded-lg border px-4 py-3.5 text-sm font-medium shadow-lg ${
                 item.tone === "error"
-                  ? "border-danger/30 bg-danger/10 text-danger"
-                  : "border-success/30 bg-success/10 text-success"
+                  ? "border-danger/30 bg-danger-subtle text-foreground"
+                  : "border-success/30 bg-success-subtle text-foreground"
               }`}
               key={item.id}
               role={item.tone === "error" ? "alert" : "status"}
             >
-              <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+              <Icon aria-hidden="true" className={`size-5 shrink-0 ${item.tone === "error" ? "text-danger" : "text-success"}`} />
               <span className="min-w-0 flex-1">{item.message}</span>
               <button
                 aria-label="Dismiss notification"
-                className="-mr-1 shrink-0 rounded-md p-1 transition-colors hover:bg-foreground/10"
+                className="-mr-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
                 onClick={() => dismiss(item.id)}
                 type="button"
               >

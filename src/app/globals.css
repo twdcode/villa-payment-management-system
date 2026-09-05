@@ -19,6 +19,10 @@
   --success: #2f8068;
   --warning: #b67a2e;
   --danger: #b64555;
+  /* Opaque toast fills. Toasts overlay page content, so they cannot use a /10 tint of the
+     colours above — text underneath would show through. Figma: pale mint success panel. */
+  --success-subtle: #e6f6ef;
+  --danger-subtle: #fbeaec;
   /* Sidebar palette — exact Figma values, do not round or "improve" these. */
   --sidebar: #2b1e22;
   /* Selected nav button: #503A40 fill with a #C4AAB1 border, white label. */
@@ -49,8 +53,10 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-ring: var(--ring);
   --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-muted: var(--sidebar-muted);

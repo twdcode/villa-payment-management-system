@@ -143,7 +143,10 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
           {/* No mobile menu button: small screens navigate with the fixed bottom bar
               below, so a hamburger would open nothing. Kept out rather than wired to a
               drawer that duplicates navigation the user can already see. */}
-          <header className="sticky top-0 z-20 flex h-20 items-center gap-3 border-b bg-surface/95 px-5 backdrop-blur lg:h-22 lg:justify-end lg:px-10">
+          {/* Search sits left and the bell follows it, leaving the top-right corner free for
+              toasts — which is where the Figma flows put them. `bg-surface` is opaque rather
+              than /95 + blur so a toast crossing the header edge stays fully legible. */}
+          <header className="sticky top-0 z-20 flex h-20 items-center gap-3 border-b bg-surface px-5 lg:h-22 lg:px-10">
             <label className="relative max-w-xl flex-1 lg:flex-initial lg:w-96">
               <Search aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
               <input className="h-11 w-full rounded-md border bg-surface pl-11 pr-4 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring" placeholder="Search customer, villa, receipt..." type="search" />

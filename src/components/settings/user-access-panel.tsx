@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -94,7 +95,7 @@ function UserFormDialog({ user, onClose, onSaved }: { user: User | null; onClose
             <label className="text-sm font-semibold text-muted-foreground">Full name<Input autoFocus className="mt-2" onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Nadeesha Perera" value={form.name} /></label>
             <label className="text-sm font-semibold text-muted-foreground">Email address<Input autoComplete="email" className="mt-2" onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="name@company.lk" type="email" value={form.email} /></label>
           </div>
-          <label className="mt-5 block text-sm font-semibold text-muted-foreground">Role<select className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, role: event.target.value as UserRole })} value={form.role}>{roleValues.map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>
+          <label className="mt-5 block text-sm font-semibold text-muted-foreground">Role<Select onValueChange={(next) => setForm({ ...form, role: next as UserRole })} value={form.role}><SelectTrigger className="mt-2 h-11"><SelectValue /></SelectTrigger><SelectContent>{roleValues.map((role) => <SelectItem key={role} value={role}>{roleLabels[role]}</SelectItem>)}</SelectContent></Select></label>
           <label className="mt-5 block text-sm font-semibold text-muted-foreground">{isEditing ? "New temporary password (optional)" : "Temporary password"}<span className="relative mt-2 block"><Input autoComplete="new-password" className="pr-12" onChange={(event) => setForm({ ...form, temporaryPassword: event.target.value })} placeholder={isEditing ? "Leave blank to keep the current password" : "Minimum 8 characters"} type={showPassword ? "text" : "password"} value={form.temporaryPassword} /><Tooltip><TooltipTrigger asChild><button aria-label={showPassword ? "Hide temporary password" : "Show temporary password"} className="absolute right-1 top-1 grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground" onClick={() => setShowPassword((visible) => !visible)} type="button">{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></TooltipTrigger><TooltipContent>{showPassword ? "Hide password" : "Show password"}</TooltipContent></Tooltip></span></label>
           <p className="mt-4 flex items-start gap-2 text-xs text-muted-foreground"><span className="mt-0.5 text-success">●</span>Passwords stay masked after saving. Share the temporary password securely with the user.</p>
           {error && <p className="mt-4 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p>}
