@@ -1,11 +1,13 @@
 "use client";
 
-import { Bell, FileUp, Home, Pencil, Plus, X } from "lucide-react";
+import { Bell, FileUp, Home, Pencil, Plus, Receipt as ReceiptIcon, X } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 
+import { ReceiptDialog } from "@/components/collections/receipt-dialog";
 import { RecordPaymentDialog } from "@/components/collections/record-payment-dialog";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { Collection, MockDatabase } from "@/lib/domain/types";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
@@ -18,13 +20,7 @@ import { useCurrentUser } from "@/components/auth/current-user-provider";
 
 const reminderSchema = z.object({ templateId: z.string().min(1, "Select a reminder template."), sendDate: z.string().min(1, "Select a proposed send date."), subject: z.string().trim().min(1, "Enter a reminder subject."), message: z.string().trim().min(1, "Enter a reminder message."), attachmentName: z.string().trim().min(1, "Upload an invoice PDF.") });
 
-type DialogState = "reminder" | "payment" | "edit" | null;
-type Notice = { message: string } | null;
-
-function NoticeAlert({ notice, onDismiss }: { notice: Notice; onDismiss: () => void }) {
-  return notice ? <div className="fixed right-4 top-24 z-[60] flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-lg border border-success bg-success px-4 py-3 text-sm font-semibold text-white shadow-lg sm:right-8"><span>{notice.message}</span><Button aria-label="Dismiss notification" className="text-white hover:bg-white/15 hover:text-white" onClick={onDismiss} size="icon" variant="ghost"><X className="size-4" /></Button></div> : null;
-}
-
+type DialogState = "reminder" | "payment" | "edit" | "receipt" | null;
 function templateText(value: string, fields: { amount: number; companyName: string; customerName: string; dueDate: string; villaName: string }) {
   const replacements: Array<[string, string]> = [
     ["customer_name", fields.customerName],
@@ -44,17 +40,20 @@ export function CollectionRowActions({ collection, database }: { collection: Col
   // C1/E10: Super Admin and Editor may correct a collection. Staff may record but not edit.
   const role = useCurrentUser()?.role ?? "view_only";
   const canEdit = role === "super_admin" || role === "editor";
-  const [notice, setNotice] = useState<Notice>(null);
+  const { toast } = useToast();
   const customer = database.customers.find((candidate) => candidate.id === collection.customerId);
   const villa = database.villas.find((candidate) => candidate.id === collection.villaId);
   const project = database.projects.find((candidate) => candidate.id === collection.projectId);
   const schedules = database.schedules.filter((schedule) => schedule.villaId === collection.villaId);
+  // Receipts come from `v_receipts`; a superseded collection has none, so this is the
+  // same condition as "is this a live, confirmed payment".
+  const receipt = database.receipts.find((candidate) => candidate.collectionId === collection.id);
   const terms = resolveInterestTerms(database.settings, villa);
   const financials = calculateVillaFinancials(schedules, terms, database.today);
   const nextPaymentDueDate = schedules.filter((schedule) => schedule.principalPaid < schedule.principalAmount).sort((left, right) => left.dueDate.localeCompare(right.dueDate))[0]?.dueDate ?? "Payment due date";
   const villaName = villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Villa";
   if (!customer || !villa || !project) return null;
-  return <div className="relative inline-flex justify-end"><NoticeAlert notice={notice} onDismiss={() => setNotice(null)} /><Button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`Actions for ${villaName}`} onClick={() => setMenuOpen((open) => !open)} size="icon" variant="ghost"><span className="text-xl leading-none">⋮</span></Button>{menuOpen && <div className="absolute right-0 top-11 z-30 w-56 rounded-lg border bg-surface p-2 shadow-xl" role="menu"><Button className="w-full justify-start" onClick={() => { setDialog("reminder"); setMenuOpen(false); }} variant="ghost"><Bell className="size-4" />Prepare reminder</Button><Button className="w-full justify-start" onClick={() => { setDialog("payment"); setMenuOpen(false); }} variant="ghost"><Plus className="size-4" />Record payment</Button>{canEdit && collection.status === "confirmed" && <Button className="w-full justify-start" onClick={() => { setDialog("edit"); setMenuOpen(false); }} variant="ghost"><Pencil className="size-4" />Edit collection</Button>}<Button asChild className="w-full justify-start" variant="ghost"><a href={`/projects/${villa.projectId}/villas/${villa.id}`}><Home className="size-4" />View villa</a></Button></div>}{dialog === "reminder" && <PrepareReminderDialog amount={financials.outstandingPrincipal + financials.interestOutstanding} companyName={database.settings.companyName} customerName={customer.fullName} database={database} dueDate={nextPaymentDueDate} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); setNotice({ message }); }} projectName={project.name} villa={villa} villaName={villaName} />}{dialog === "payment" && <RecordPaymentDialog customer={customer} database={database} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); setNotice({ message }); }} villa={villa} />}{dialog === "edit" && <RecordPaymentDialog customer={customer} database={database} editing={collection} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); setNotice({ message }); }} villa={villa} />}</div>;
+  return <div className="relative inline-flex justify-end"><Button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`Actions for ${villaName}`} onClick={() => setMenuOpen((open) => !open)} size="icon" variant="ghost"><span className="text-xl leading-none">⋮</span></Button>{menuOpen && <div className="absolute right-0 top-11 z-30 w-56 rounded-lg border bg-surface p-2 shadow-xl" role="menu"><Button className="w-full justify-start" onClick={() => { setDialog("reminder"); setMenuOpen(false); }} variant="ghost"><Bell className="size-4" />Prepare reminder</Button><Button className="w-full justify-start" onClick={() => { setDialog("payment"); setMenuOpen(false); }} variant="ghost"><Plus className="size-4" />Record payment</Button>{canEdit && collection.status === "confirmed" && <Button className="w-full justify-start" onClick={() => { setDialog("edit"); setMenuOpen(false); }} variant="ghost"><Pencil className="size-4" />Edit collection</Button>}{receipt && <Button className="w-full justify-start" onClick={() => { setDialog("receipt"); setMenuOpen(false); }} variant="ghost"><ReceiptIcon className="size-4" />View receipt</Button>}<Button asChild className="w-full justify-start" variant="ghost"><a href={`/projects/${villa.projectId}/villas/${villa.id}`}><Home className="size-4" />View villa</a></Button></div>}{dialog === "reminder" && <PrepareReminderDialog amount={financials.outstandingPrincipal + financials.interestOutstanding} companyName={database.settings.companyName} customerName={customer.fullName} database={database} dueDate={nextPaymentDueDate} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); toast(message); }} projectName={project.name} villa={villa} villaName={villaName} />}{dialog === "payment" && <RecordPaymentDialog customer={customer} database={database} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); toast(message); }} villa={villa} />}{dialog === "receipt" && receipt && <ReceiptDialog collection={collection} customer={customer} database={database} onClose={() => setDialog(null)} project={project} receipt={receipt} villa={villa} />}{dialog === "edit" && <RecordPaymentDialog customer={customer} database={database} editing={collection} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); toast(message); }} villa={villa} />}</div>;
 }
 
 function PrepareReminderDialog({ amount, companyName, customerName, database, dueDate, onClose, onSuccess, projectName, villa, villaName }: { amount: number; companyName: string; customerName: string; database: MockDatabase; dueDate: string; onClose: () => void; onSuccess: (message: string) => void; projectName: string; villa: { id: string; customerId: string | null }; villaName: string }) {

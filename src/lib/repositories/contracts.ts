@@ -12,6 +12,24 @@ export type PaymentScheduleInput = Pick<PaymentSchedule, "stage" | "deliverables
 export type PaymentScheduleUpdateInput = PaymentScheduleInput & { id?: string };
 export type VillaInterestTermsInput = { chargeLatePaymentInterest: boolean; interestTerms: InterestTerms };
 export type DocumentLinkInput = Pick<DocumentLink, "name" | "date" | "url">;
+export type DocumentLinkUpdate = Partial<DocumentLinkInput>;
+
+/**
+ * Everything about "villa details" that is safe to change after setup without touching
+ * money or the cancellation flow.
+ *
+ * `value` is deliberately excluded — it is pinned to the payment schedule total
+ * (`updatePaymentSchedule` validates the two agree), so changing it here would either
+ * silently break that invariant or require re-running schedule validation from a form
+ * that has no view of the schedule at all. A villa's value changes by editing its
+ * schedule, not this form.
+ *
+ * `saleStatus` excludes `"cancelled"` on purpose: `operationalStatus === "cancelled"` is
+ * really `programmeStatus`, a separate column reachable only through `cancelVilla` (which
+ * requires a reason and Super Admin). Routing it through this form would let an Editor
+ * cancel a villa with no reason recorded.
+ */
+export type VillaDetailsUpdate = { number: string; type: string; saleStatus: Exclude<Villa["operationalStatus"], "cancelled"> };
 
 export type VillaSetupInput = {
   projectId: string;
@@ -101,10 +119,21 @@ export interface Repository {
   createCustomer(input: CustomerInput): Promise<Customer>;
   updateCustomer(id: string, input: CustomerUpdate): Promise<Customer>;
   completeVillaSetup(input: VillaSetupInput): Promise<VillaSetupResult>;
+  updateVilla(villaId: string, input: VillaDetailsUpdate): Promise<Villa>;
+  /**
+   * Ends the villa's current customer assignment (if any) and starts a new one — the PRD
+   * requires this not remove historical payment activity, so it is an insert/close pair
+   * on `villa_customers`, never an update to the villa row. `newCustomer` mirrors
+   * `completeVillaSetup`'s choice between picking an existing customer or adding one
+   * inline; pass neither to unassign the villa with no replacement.
+   */
+  reassignVillaCustomer(villaId: string, input: { customerId?: string; newCustomer?: CustomerInput }): Promise<{ villa: Villa; customer: Customer | null }>;
   getSchedules(villaId?: string): Promise<PaymentSchedule[]>;
   updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[]): Promise<PaymentSchedule[]>;
   updateVillaInterestTerms(villaId: string, input: VillaInterestTermsInput): Promise<Villa>;
   addVillaDocument(villaId: string, input: DocumentLinkInput): Promise<void>;
+  updateVillaDocument(documentId: string, input: DocumentLinkUpdate): Promise<void>;
+  deleteVillaDocument(documentId: string, reason: string): Promise<void>;
   addVillaNote(villaId: string, content: string): Promise<void>;
   addCustomerNote(customerId: string, content: string): Promise<void>;
   cancelVilla(villaId: string, reason: string): Promise<Villa>;

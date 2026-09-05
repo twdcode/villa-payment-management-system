@@ -19,10 +19,12 @@
   --success: #2f8068;
   --warning: #b67a2e;
   --danger: #b64555;
+  /* Sidebar palette — exact Figma values, do not round or "improve" these. */
   --sidebar: #2b1e22;
-  --sidebar-foreground: #f8f6f6;
-  --sidebar-muted: #d6bfc5;
-  --sidebar-active: #5d454c;
+  /* Selected nav button: #503A40 fill with a #C4AAB1 border, white label. */
+  --sidebar-foreground: #ffffff;
+  --sidebar-muted: #c4aab1;
+  --sidebar-active: #503a40;
   --shadow-project-card-hover: 0 4px 8px rgb(43 30 34 / 0.18);
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
@@ -85,3 +87,50 @@ button, input, select, textarea { font: inherit; }
 
 .project-card--completed { border-color: color-mix(in srgb, var(--success) 70%, transparent); }
 .project-card.project-card--completed:hover { border-color: var(--success); }
+
+/*
+ * Printing a receipt.
+ *
+ * The receipt lives inside a Radix dialog: a `position: fixed` box centred with a
+ * transform, inside an unmarked portal `<div>` on `<body>`. Printing that directly
+ * gives a clipped half-page with the dashboard showing through.
+ *
+ * Rather than fight the fixed positioning, the whole dialog subtree is re-flowed:
+ * `display: contents` on the ancestors dissolves the fixed/transformed boxes so the
+ * receipt itself becomes a normal block in the page. Everything outside it is hidden
+ * with `display: none`, which (unlike `visibility: hidden`) also reclaims its space.
+ *
+ * Keyed off `[data-printable]` / `[data-print-hide]`, set by the dialog itself —
+ * Radix's portal has no stable selector of its own to target.
+ */
+@media print {
+  /* Hide the app, but keep the chain of ancestors that leads to the receipt. */
+  body:has([data-printable]) > *:not(:has([data-printable])) { display: none !important; }
+
+  /* Dissolve the portal wrapper and the fixed/transformed dialog box. */
+  body:has([data-printable]) *:has(> [data-printable]),
+  body:has([data-printable]) [data-printable] { display: contents !important; }
+
+  /* Screen-only chrome: the overlay wash, dialog header and action buttons. */
+  body:has([data-printable]) [data-print-hide] { display: none !important; }
+
+  /* The receipt itself — a plain page, no dialog framing. */
+  [data-printable] > article {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  /* Keep the money table off a page break — a receipt split mid-total is unreadable. */
+  [data-printable] table { break-inside: avoid; }
+
+  /* The dialog is a `grid` with a fixed row height; once its children are hidden the
+     empty track still prints as a grey block and pushes a blank second page. */
+  body:has([data-printable]) { background: #fff !important; }
+  [data-printable] { display: contents !important; }
+
+  @page { margin: 16mm; }
+}

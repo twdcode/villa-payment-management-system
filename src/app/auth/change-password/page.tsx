@@ -8,6 +8,7 @@ import { BrandMark } from "@/components/brand/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { changePasswordAction } from "@/lib/auth/actions";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Change your own password.
@@ -33,6 +34,20 @@ export default function ChangePasswordPage() {
         setError(result.error);
         return;
       }
+
+      // `changePasswordAction` clears `must_change_password` in Supabase, but the
+      // browser's cookie still holds the access token issued at sign-in, with the old
+      // flag baked into its claims. `getClaims()` (middleware, every server read) trusts
+      // that token as-is — it does not re-check Supabase on each request — so without an
+      // explicit refresh here the redirect loop back to this page would continue until
+      // the token happened to expire on its own. `refreshSession()` exchanges the refresh
+      // token for a new access token reflecting the metadata as it is right now.
+      const { error: refreshError } = await createClient().auth.refreshSession();
+      if (refreshError) {
+        setError("Password updated, but refreshing your session failed. Please sign in again.");
+        return;
+      }
+
       setDone(true);
       router.replace("/dashboard");
       router.refresh();

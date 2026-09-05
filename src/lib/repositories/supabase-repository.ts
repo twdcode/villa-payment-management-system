@@ -1,6 +1,7 @@
 import "server-only";
 
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { connection } from "next/server";
 
 import { getSessionUser } from "@/lib/auth/session";
 import { db } from "@/lib/db/client";
@@ -13,7 +14,7 @@ import { paymentStatus } from "@/lib/finance/calculations";
 import type { Collection, CollectionAllocation, Customer, MockDatabase, PaymentSchedule, Project, ReminderApproval, ReminderLog, ReminderTemplate, User, Villa, WorkspaceNotification, WorkspaceSettings } from "@/lib/domain/types";
 import { NotImplementedError } from "@/lib/repositories/errors";
 
-import type { Repository, ApplicationSettingsInput, CollectionInput, CollectionQuery, CollectionResult, CollectionUpdateInput, CustomerInput, CustomerUpdate, DocumentLinkInput, GracePeriodInput, InterestDefaultsInput, PaymentScheduleDefaultsInput, PaymentScheduleUpdateInput, ProjectInput, ProjectUpdate, ReminderApprovalInput, ReminderApprovalReviewInput, ReminderTemplateInput, UserInput, UserUpdate, VillaInterestTermsInput, VillaQuery, VillaSetupInput, VillaSetupResult } from "./contracts";
+import type { Repository, ApplicationSettingsInput, CollectionInput, CollectionQuery, CollectionResult, CollectionUpdateInput, CustomerInput, CustomerUpdate, DocumentLinkInput, DocumentLinkUpdate, GracePeriodInput, InterestDefaultsInput, PaymentScheduleDefaultsInput, PaymentScheduleUpdateInput, ProjectInput, ProjectUpdate, ReminderApprovalInput, ReminderApprovalReviewInput, ReminderTemplateInput, UserInput, UserUpdate, VillaDetailsUpdate, VillaInterestTermsInput, VillaQuery, VillaSetupInput, VillaSetupResult } from "./contracts";
 
 function validateProjectInput(input: ProjectInput | ProjectUpdate) {
   if ("name" in input && input.name !== undefined && input.name.trim().length < 2) {
@@ -31,6 +32,17 @@ function validateCustomerInput(input: CustomerInput) {
   if (input.fullName.trim().length < 2) throw new Error("Customer name must contain at least two characters.");
   if (!/^\S+@\S+\.\S+$/.test(input.email.trim())) throw new Error("Enter a valid customer email address.");
   if (input.phone.trim().length < 7) throw new Error("Enter a valid customer phone number.");
+}
+
+function validateDocumentUrl(url: string) {
+  try { new URL(url); } catch { throw new Error("Enter a valid document link."); }
+  if (!/^https?:\/\//i.test(url.trim())) throw new Error("Enter a valid document link.");
+}
+
+function validateDocumentLinkInput(input: DocumentLinkInput) {
+  if (!input.name.trim()) throw new Error("Enter a document name.");
+  if (!input.date) throw new Error("Select a document date.");
+  validateDocumentUrl(input.url);
 }
 
 function validateUserInput(input: UserInput | UserUpdate) {
@@ -737,6 +749,96 @@ export class SupabaseRepository implements Repository {
     });
   }
 
+  async updateVilla(villaId: string, input: VillaDetailsUpdate): Promise<Villa> {
+    if (!input.number.trim()) throw new Error("Villa number is required.");
+    if (!input.type.trim()) throw new Error("Villa type is required.");
+    const currentUser = await this.getCurrentUser();
+
+    return db.transaction(async (tx) => {
+      const [before] = await tx.select().from(schema.villas).where(and(eq(schema.villas.id, villaId), isNull(schema.villas.deletedAt)));
+      if (!before) throw new Error("Villa not found.");
+      if (before.programmeStatus === "cancelled") throw new Error("This villa programme is cancelled and cannot be edited.");
+
+      const [numberClash] = await tx.select({ id: schema.villas.id }).from(schema.villas).where(and(
+        eq(schema.villas.projectId, before.projectId),
+        eq(schema.villas.villaNumber, input.number.trim()),
+        ne(schema.villas.id, villaId),
+        isNull(schema.villas.deletedAt),
+      ));
+      if (numberClash) throw new Error("A villa with this number already exists in the selected project.");
+
+      const [after] = await tx.update(schema.villas).set({
+        villaNumber: input.number.trim(),
+        villaType: input.type.trim(),
+        saleStatus: input.saleStatus,
+      }).where(eq(schema.villas.id, villaId)).returning();
+
+      await writeAuditLog(tx, { tableName: "villas", recordId: villaId, action: "update", before, after, actorId: currentUser.id });
+
+      const [customerLink] = await tx.select().from(schema.villaCustomers).where(and(eq(schema.villaCustomers.villaId, villaId), isNull(schema.villaCustomers.unassignedAt)));
+      const [terms] = await tx.select().from(schema.villaInterestTerms).where(eq(schema.villaInterestTerms.villaId, villaId));
+      return toVilla({ ...after, customerId: customerLink?.customerId ?? null }, terms);
+    });
+  }
+
+  async reassignVillaCustomer(villaId: string, input: { customerId?: string; newCustomer?: CustomerInput }): Promise<{ villa: Villa; customer: Customer | null }> {
+    if (input.customerId && input.newCustomer) throw new Error("Choose an existing customer or add a new one, not both.");
+    if (input.newCustomer) validateCustomerInput(input.newCustomer);
+    const currentUser = await this.getCurrentUser();
+
+    return db.transaction(async (tx) => {
+      const [villa] = await tx.select().from(schema.villas).where(and(eq(schema.villas.id, villaId), isNull(schema.villas.deletedAt)));
+      if (!villa) throw new Error("Villa not found.");
+      if (villa.programmeStatus === "cancelled") throw new Error("This villa programme is cancelled and cannot be reassigned.");
+
+      let customer: Customer | null = null;
+      if (input.newCustomer) {
+        const [clash] = await tx.select({ id: schema.customers.id }).from(schema.customers).where(and(eq(schema.customers.email, input.newCustomer.email.trim()), isNull(schema.customers.deletedAt)));
+        if (clash) throw new Error("A customer with this email already exists.");
+        const [row] = await tx.insert(schema.customers).values({
+          fullName: input.newCustomer.fullName.trim(),
+          email: input.newCustomer.email.trim(),
+          phone: input.newCustomer.phone.trim(),
+          nicPassport: input.newCustomer.nicPassport?.trim() || undefined,
+          address: input.newCustomer.address?.trim() || undefined,
+          createdBy: currentUser.id,
+        }).returning();
+        customer = toCustomer(row);
+      } else if (input.customerId) {
+        const [row] = await tx.select().from(schema.customers).where(and(eq(schema.customers.id, input.customerId), isNull(schema.customers.deletedAt)));
+        if (!row) throw new Error("Select a valid customer.");
+        customer = toCustomer(row);
+      }
+
+      // Close the current assignment (if any) and open a new one, rather than update it in
+      // place — this is the history the PRD requires: "changing a customer assignment must
+      // not remove historical payment activity." Collections stay linked to the customer id
+      // that was live when they were recorded, never to whichever assignment row exists now.
+      const [previousLink] = await tx.select().from(schema.villaCustomers).where(and(eq(schema.villaCustomers.villaId, villaId), isNull(schema.villaCustomers.unassignedAt)));
+      if (previousLink && previousLink.customerId === customer?.id) {
+        throw new Error("This customer is already assigned to the villa.");
+      }
+      if (previousLink) {
+        await tx.update(schema.villaCustomers).set({ unassignedAt: new Date(), unassignedBy: currentUser.id }).where(eq(schema.villaCustomers.id, previousLink.id));
+      }
+      if (customer) {
+        await tx.insert(schema.villaCustomers).values({ villaId, customerId: customer.id, assignedBy: currentUser.id });
+      }
+
+      await writeAuditLog(tx, {
+        tableName: "villa_customers",
+        recordId: villaId,
+        action: "update",
+        before: { customerId: previousLink?.customerId ?? null },
+        after: { customerId: customer?.id ?? null },
+        actorId: currentUser.id,
+      });
+
+      const [terms] = await tx.select().from(schema.villaInterestTerms).where(eq(schema.villaInterestTerms.villaId, villaId));
+      return { villa: toVilla({ ...villa, customerId: customer?.id ?? null }, terms), customer };
+    });
+  }
+
   async getSchedules(villaId?: string): Promise<PaymentSchedule[]> {
     const where = villaId ? sql`WHERE villa_id = ${villaId}` : sql``;
     const rows = await queryView<Parameters<typeof toPaymentSchedule>[0]>(
@@ -847,14 +949,47 @@ export class SupabaseRepository implements Repository {
   }
 
   async addVillaDocument(villaId: string, input: DocumentLinkInput): Promise<void> {
-    if (!input.name.trim()) throw new Error("Enter a document name.");
-    if (!input.date) throw new Error("Select a document date.");
-    try { new URL(input.url); } catch { throw new Error("Enter a valid document link."); }
-    if (!/^https?:\/\//i.test(input.url.trim())) throw new Error("Enter a valid document link.");
+    validateDocumentLinkInput(input);
     const currentUser = await this.getCurrentUser();
     const [villa] = await db.select({ id: schema.villas.id }).from(schema.villas).where(and(eq(schema.villas.id, villaId), isNull(schema.villas.deletedAt)));
     if (!villa) throw new Error("Villa not found.");
     await db.insert(schema.documents).values({ villaId, name: input.name.trim(), documentDate: input.date, url: input.url.trim(), addedBy: currentUser.id });
+  }
+
+  async updateVillaDocument(documentId: string, input: DocumentLinkUpdate): Promise<void> {
+    if (input.name !== undefined && !input.name.trim()) throw new Error("Enter a document name.");
+    if (input.date !== undefined && !input.date) throw new Error("Select a document date.");
+    if (input.url !== undefined) validateDocumentUrl(input.url);
+    const currentUser = await this.getCurrentUser();
+
+    return db.transaction(async (tx) => {
+      const [before] = await tx.select().from(schema.documents).where(and(eq(schema.documents.id, documentId), isNull(schema.documents.deletedAt)));
+      if (!before) throw new Error("Document not found.");
+
+      const [after] = await tx.update(schema.documents).set({
+        name: input.name?.trim() ?? before.name,
+        documentDate: input.date ?? before.documentDate,
+        url: input.url?.trim() ?? before.url,
+      }).where(eq(schema.documents.id, documentId)).returning();
+
+      await writeAuditLog(tx, { tableName: "documents", recordId: documentId, action: "update", before, after, actorId: currentUser.id });
+    });
+  }
+
+  async deleteVillaDocument(documentId: string, reason: string): Promise<void> {
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length < 3) throw new Error("Enter a reason for removing this document.");
+    const currentUser = await this.getCurrentUser();
+
+    return db.transaction(async (tx) => {
+      const [before] = await tx.select().from(schema.documents).where(and(eq(schema.documents.id, documentId), isNull(schema.documents.deletedAt)));
+      if (!before) throw new Error("Document not found.");
+
+      // Soft delete only, and only the reference — the PRD is explicit that this never
+      // touches the external file the link points to.
+      await tx.update(schema.documents).set({ deletedAt: new Date() }).where(eq(schema.documents.id, documentId));
+      await writeAuditLog(tx, { tableName: "documents", recordId: documentId, action: "delete", before, reason: trimmedReason, actorId: currentUser.id });
+    });
   }
 
   async addVillaNote(villaId: string, content: string): Promise<void> {
@@ -925,7 +1060,22 @@ export class SupabaseRepository implements Repository {
     return fetchCollections(query);
   }
 
+  /**
+   * The whole workspace, as of this request.
+   *
+   * `connection()` marks the caller as request-dependent, forcing dynamic rendering.
+   * Without it Next.js sees a page that reads no cookies and no headers, decides it is
+   * static, and bakes one build-time snapshot of the database into HTML — every user
+   * then sees the same frozen numbers forever, and `router.refresh()` cannot fix it
+   * because there is nothing dynamic to re-run. This is invisible in `next dev` (which
+   * always renders dynamically) and only appears in a production build.
+   *
+   * It belongs here rather than as `export const dynamic` on each page: every screen
+   * reads live money through this one method, so one guard covers them all and a new
+   * page cannot reintroduce the bug by forgetting the export.
+   */
   async getDatabase(): Promise<MockDatabase> {
+    await connection();
     return assembleDatabase();
   }
 

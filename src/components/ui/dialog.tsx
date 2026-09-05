@@ -16,7 +16,8 @@ type DialogContentProps = React.ComponentProps<typeof DialogPrimitive.Content> &
 function DialogContent({ className, children, showClose = true, ...props }: DialogContentProps) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-primary/35 backdrop-blur-[1px]" />
+      {/* `data-print-hide`: the wash would print as a grey page. See @media print in globals.css. */}
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-primary/35 backdrop-blur-[1px]" data-print-hide />
       <DialogPrimitive.Content
         className={cn("fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5 rounded-lg border bg-surface p-6 shadow-xl focus:outline-none sm:p-7", className)}
         {...props}

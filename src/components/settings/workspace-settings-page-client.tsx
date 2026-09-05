@@ -1,10 +1,11 @@
 "use client";
 
-import { Bell, CalendarDays, CheckCircle2, ChevronRight, Clock3, FileClock, Plus, Settings2, Trash2, UsersRound, X } from "lucide-react";
+import { Bell, CalendarDays, ChevronRight, Clock3, FileClock, Plus, Settings2, Trash2, UsersRound, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { z } from "zod";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { useToast } from "@/components/ui/toast";
 import { GracePeriodsPanel } from "@/components/settings/grace-periods-panel";
 import { ReminderTemplatesPanel } from "@/components/settings/reminder-templates-panel";
 import { Button } from "@/components/ui/button";
@@ -42,11 +43,6 @@ const sectionItems: Array<{ id: Section; label: string; description: string; ico
   { id: "interest", label: "Interest defaults", description: "New agreement terms", icon: Clock3 },
   { id: "schedule", label: "Payment schedule", description: "Project stage defaults", icon: FileClock },
 ];
-
-function SuccessAlert({ message, onDismiss }: { message: string; onDismiss: () => void }) {
-  if (!message) return null;
-  return <div className="fixed right-4 top-4 z-[70] flex w-[calc(100%-2rem)] max-w-lg items-center justify-between gap-3 rounded-lg border border-success bg-success px-4 py-4 text-sm font-semibold text-white shadow-lg" role="status"><span className="flex items-center gap-3"><CheckCircle2 className="size-5 shrink-0" />{message}</span><button aria-label="Dismiss success message" className="rounded-md p-1 hover:bg-white/15" onClick={onDismiss}><X className="size-4" /></button></div>;
-}
 
 function SettingsNavigation({ active, onChange }: { active: Section; onChange: (section: Section) => void }) {
   return <aside className="min-w-0 max-w-full overflow-hidden rounded-lg border bg-surface p-4 min-[1360px]:sticky min-[1360px]:top-6 min-[1360px]:self-start">
@@ -95,7 +91,15 @@ function AddScheduleStageDialog({ defaultGraceDays, onClose, onSave }: { default
   return <Dialog onOpenChange={(open) => !open && onClose()} open><DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-2xl overflow-y-auto rounded-lg p-5 sm:w-[calc(100%-2rem)] sm:p-7" showClose={false}><form onSubmit={submit}><div className="flex items-start justify-between gap-4"><div><span className="grid size-11 place-items-center rounded-md bg-surface-muted"><FileClock className="size-5 text-primary" /></span><DialogTitle className="mt-4 text-2xl font-medium">Add payment stage</DialogTitle><DialogDescription className="mt-2">Add a reusable stage to the selected project&apos;s schedule defaults.</DialogDescription></div><Button aria-label="Close add stage form" onClick={onClose} size="icon" type="button" variant="ghost"><X className="size-5" /></Button></div><div className="mt-6 grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]"><label className="text-sm font-semibold text-muted-foreground"><span className="flex items-center justify-between gap-3"><span>Stage name</span><span className="text-xs text-danger">Required</span></span><Input autoFocus className="mt-2" onChange={(event) => { setForm({ ...form, stage: event.target.value }); setError(""); }} placeholder="e.g. Foundation complete" required value={form.stage} /></label><label className="text-sm font-semibold text-muted-foreground">Grace days<Input className="mt-2" min="0" onChange={(event) => { setForm({ ...form, gracePeriodDays: Number(event.target.value) }); setError(""); }} required step="1" type="number" value={form.gracePeriodDays} /></label></div><label className="mt-4 block text-sm font-semibold text-muted-foreground">Stage deliverables<textarea className="mt-2 min-h-28 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setForm({ ...form, deliverables: event.target.value })} placeholder="Construction work or documents delivered at this stage..." value={form.deliverables} /></label>{error && <p className="mt-4 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p>}<footer className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button onClick={onClose} type="button" variant="outline">Cancel</Button><Button type="submit">Save stage</Button></footer></form></DialogContent></Dialog>;
 }
 
-function SchedulePanel({ database, isSuperAdmin, onSaved }: { database: MockDatabase; isSuperAdmin: boolean; onSaved: (database: MockDatabase, message: string) => void }) {
+function SchedulePanel({ database, onSaved }: { database: MockDatabase; onSaved: (database: MockDatabase, message: string) => void }) {
+  // Read here, not in the top-level page component: `WorkspaceSettingsPageClient`
+  // returns `<AppShell>...</AppShell>`, and its own JSX (including this component,
+  // built as one of AppShell's children) is constructed in that same render pass —
+  // before `AppShell` has wrapped anything in `CurrentUserProvider`. A hook call there
+  // reads the *outer* (unset) context and silently returns null forever. `SchedulePanel`
+  // itself, rendered as a child by the time React actually calls this function, sees the
+  // provider correctly.
+  const isSuperAdmin = useCurrentUser()?.role === "super_admin";
   const [projectId, setProjectId] = useState(database.projects[0]?.id ?? "");
   const defaultsFor = (id: string) => database.settings.projectPaymentScheduleDefaults.find((item) => item.projectId === id)?.stages ?? DEFAULT_PAYMENT_SCHEDULE_STAGES.map((stage, index) => ({ id: `${id}-default-stage-${index + 1}`, stage, gracePeriodDays: database.settings.defaultInterestTerms.gracePeriodDays }));
   const [stages, setStages] = useState<PaymentScheduleDefaultStage[]>(() => defaultsFor(projectId));
@@ -110,19 +114,26 @@ function SchedulePanel({ database, isSuperAdmin, onSaved }: { database: MockData
 
 /** `initialData`: fetched server-side by `app/settings/page.tsx`. See dashboard-page-client.tsx for why it stays optional. */
 export function WorkspaceSettingsPageClient({ database: initialDatabase }: { database: MockDatabase }) {
+  return (
+    <AppShell active="Settings">
+      <WorkspaceSettingsPageBody database={initialDatabase} />
+    </AppShell>
+  );
+}
+
+/** Split so `useToast()` resolves under AppShell's provider — see ProjectsPageBody. */
+function WorkspaceSettingsPageBody({ database: initialDatabase }: { database: MockDatabase }) {
   const [database, setDatabase] = useState(initialDatabase);
   const [section, setSection] = useState<Section>("application");
-  const [notice, setNotice] = useState("");
-  const currentUser = useCurrentUser();
-  const isSuperAdmin = currentUser?.role === "super_admin";
+  const { toast } = useToast();
   const panel = useMemo(() => {
-    const onSaved = (nextDatabase: MockDatabase, message: string) => { setDatabase(nextDatabase); setNotice(message); };
+    const onSaved = (nextDatabase: MockDatabase, message: string) => { setDatabase(nextDatabase); toast(message); };
     if (section === "application") return <ApplicationPanel database={database} onSaved={onSaved} />;
     if (section === "users") return <UserAccessPanel database={database} onSaved={onSaved} />;
     if (section === "templates") return <ReminderTemplatesPanel database={database} onSaved={onSaved} />;
     if (section === "grace") return <GracePeriodsPanel database={database} onSaved={onSaved} />;
     if (section === "interest") return <InterestPanel database={database} onSaved={onSaved} />;
-    return <SchedulePanel database={database} isSuperAdmin={isSuperAdmin} onSaved={onSaved} />;
-  }, [database, isSuperAdmin, section]);
-  return <AppShell active="Settings"><SuccessAlert message={notice} onDismiss={() => setNotice("")} /><div><h1 className="text-3xl font-semibold">Settings</h1><p className="mt-2 text-muted-foreground">Company and workspace preferences.</p></div><div className="mt-8 grid min-w-0 max-w-full gap-6 min-[1360px]:grid-cols-[20rem_minmax(0,1fr)]"><SettingsNavigation active={section} onChange={setSection} />{panel}</div></AppShell>;
+    return <SchedulePanel database={database} onSaved={onSaved} />;
+  }, [database, section, toast]);
+  return <><div><h1 className="text-3xl font-semibold">Settings</h1><p className="mt-2 text-muted-foreground">Company and workspace preferences.</p></div><div className="mt-8 grid min-w-0 max-w-full gap-6 min-[1360px]:grid-cols-[20rem_minmax(0,1fr)]"><SettingsNavigation active={section} onChange={setSection} />{panel}</div></>;
 }

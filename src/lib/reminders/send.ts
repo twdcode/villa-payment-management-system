@@ -1,23 +1,30 @@
 import "server-only";
 
 import { eq } from "drizzle-orm";
+import { Resend } from "resend";
 
 import { db } from "@/lib/db/client";
 import * as schema from "@/lib/db/schema";
 
 /**
- * Sends one approved reminder.
+ * `CONTACT_FROM_EMAIL` is deliberately not a workspace setting like `replyToEmail` — the
+ * `From` address is tied to whichever domain is actually verified in Resend, an
+ * infrastructure fact, not a business preference. Sandbox accounts have no verified
+ * domain of their own and must send from `onboarding@resend.dev`, which itself only
+ * delivers to the Resend account's own address — real customers cannot receive email
+ * until a real domain is added and verified in the Resend dashboard.
+ */
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+/**
+ * Sends one approved reminder through Resend.
  *
- * STUB — no Resend account exists yet. This logs the attempt, writes a `reminder_logs`
- * row and marks the request delivered, so the approval queue's send/review flow works
- * end to end against real data. Swap the body for a real `resend.emails.send(...)` call
- * once `RESEND_API_KEY` and a verified sending domain are configured; nothing else in the
- * call chain (Server Actions, the cron route, `reviewReminderApproval`) needs to change —
- * they all go through this one function.
+ * Writes a `reminder_logs` row and marks the request delivered on success. Nothing else
+ * in the call chain (Server Actions, the cron route, `reviewReminderApproval`) needs to
+ * change to reach this — they always went through this one function.
  *
  * O7: `Reply-To` is the workspace's configured mailbox (`app_settings.reply_to_email`),
- * never hardcoded, so a customer hitting reply reaches a person. `From` will be the
- * verified Resend sending domain once real sending is wired up.
+ * never hardcoded, so a customer hitting reply reaches a person.
  */
 export async function sendReminderEmail(request: {
   id: string;
@@ -38,15 +45,24 @@ export async function sendReminderEmail(request: {
     throw new Error("Customer has no email address on file.");
   }
 
-  // TODO(Phase 8 / real Resend account): replace this block with
-  //   await resend.emails.send({ from: <verified domain>, to: customer.email,
-  //     reply_to: settings.replyTo ?? undefined, subject: request.subject, html: request.message });
-  // and use its response id as providerMessageId instead of the placeholder below.
-  console.warn(
-    `[reminders] STUB SEND — no Resend account configured. Would email ${customer.email} ` +
-      `(reply-to: ${settings?.replyTo ?? "not set"}): "${request.subject}"`,
-  );
-  const providerMessageId = `stub-${request.id}`;
+  if (!resend || !process.env.CONTACT_FROM_EMAIL) {
+    throw new Error("Email sending is not configured (RESEND_API_KEY / CONTACT_FROM_EMAIL missing).");
+  }
+
+  const { data, error } = await resend.emails.send({
+    from: process.env.CONTACT_FROM_EMAIL,
+    to: customer.email,
+    replyTo: settings?.replyTo ?? undefined,
+    subject: request.subject,
+    html: request.message,
+  });
+
+  // Resend reports failures as a returned `error`, not a thrown exception — surface it
+  // the same way a network failure would be, so the caller's catch block behaves
+  // identically either way.
+  if (error) {
+    throw new Error(`Resend rejected the send: ${error.message}`);
+  }
 
   await db.insert(schema.reminderLogs).values({
     reminderRequestId: request.id,
@@ -54,7 +70,7 @@ export async function sendReminderEmail(request: {
     paymentStageId: request.paymentStageId,
     customerId: request.customerId,
     deliveryStatus: "delivered",
-    providerMessageId,
+    providerMessageId: data?.id ?? null,
   });
 
   await db.update(schema.reminderRequests).set({ deliveryStatus: "delivered" }).where(eq(schema.reminderRequests.id, request.id));

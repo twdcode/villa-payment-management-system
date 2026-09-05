@@ -21,7 +21,7 @@ import { useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { buildDashboardSnapshot, type DashboardPaymentStatus } from "@/lib/dashboard/snapshot";
 import type { MockDatabase } from "@/lib/domain/types";
-import { formatLkr, formatLkrCompact } from "@/lib/formatters";
+import { formatLkr, formatLkrCompact, numberToWordsLkr } from "@/lib/formatters";
 import { isVillaActive } from "@/lib/domain/villa-status";
 
 
@@ -71,7 +71,8 @@ function MetricCard({ label, value, icon: Icon, tone = "default", href }: { labe
     >
       <span className={`grid size-10 place-items-center rounded-md ${toneClasses[tone]}`}><Icon className="size-5" /></span>
       <p className="mt-5 text-sm text-muted-foreground">{label}</p>
-      <p className={`mt-2 min-w-0 text-xl font-semibold ${tone === "danger" ? "text-danger" : ""}`}>{formatLkrCompact(value)}</p>
+      <p className={`mt-2 min-w-0 text-xl font-semibold ${tone === "danger" ? "text-danger" : ""}`} title={numberToWordsLkr(value)}>{formatLkrCompact(value)}</p>
+      <p className="mt-1 truncate text-xs capitalize text-muted-foreground" title={numberToWordsLkr(value)}>{numberToWordsLkr(value)}</p>
     </Link>
   );
 }
