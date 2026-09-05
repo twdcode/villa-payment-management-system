@@ -6,12 +6,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DEMO_TODAY } from "@/lib/config/demo";
 import type { NotificationType, User, WorkspaceNotification } from "@/lib/domain/types";
 import { daysBetween } from "@/lib/finance/calculations";
-import { getClientRepository } from "@/lib/repositories/client";
+import { getCurrentUserNotificationsAction } from "@/lib/actions/workspace";
 import { markNotificationReadAction, markAllNotificationsReadAction } from "@/lib/actions/notifications";
-import { DATABASE_UPDATED_EVENT } from "@/lib/repositories/events";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/errors";
 
@@ -32,25 +30,36 @@ const notificationIconClasses: Record<NotificationType, string> = {
   payment_recorded: "bg-success/10 text-success",
 };
 
-function relativeDate(createdAt: string) {
+/**
+ * The browser's own date, for display grouping only ("Today" / "2 days ago"). This is
+ * cosmetic labeling, not a financial calculation — every overdue/interest figure in the
+ * notification's own text was already computed server-side against `workspace_today()`
+ * before it ever reached the client. Using the real wall clock here avoids plumbing the
+ * workspace clock through a component that otherwise has no reason to need it.
+ */
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function relativeDate(createdAt: string, today: string) {
   const createdDate = createdAt.slice(0, 10);
-  const age = daysBetween(createdDate, DEMO_TODAY);
+  const age = daysBetween(createdDate, today);
   if (age === 0) return "Today";
   if (age === 1) return "Yesterday";
   if (age < 8) return `${age} days ago`;
   return new Intl.DateTimeFormat("en-LK", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${createdDate}T00:00:00.000Z`));
 }
 
-function groupLabel(createdAt: string) {
-  const age = daysBetween(createdAt.slice(0, 10), DEMO_TODAY);
+function groupLabel(createdAt: string, today: string) {
+  const age = daysBetween(createdAt.slice(0, 10), today);
   if (age === 0) return "Today";
   if (age <= 7) return "Earlier";
   return "Older";
 }
 
-function groupNotifications(notifications: WorkspaceNotification[]) {
+function groupNotifications(notifications: WorkspaceNotification[], today: string) {
   return ["Today", "Earlier", "Older"].flatMap((label) => {
-    const entries = notifications.filter((notification) => groupLabel(notification.createdAt) === label);
+    const entries = notifications.filter((notification) => groupLabel(notification.createdAt, today) === label);
     return entries.length ? [{ label, entries }] : [];
   });
 }
@@ -67,7 +76,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   const refresh = useCallback(async () => {
     if (!currentUser) return;
     try {
-      const nextNotifications = await getClientRepository().getNotifications();
+      const nextNotifications = await getCurrentUserNotificationsAction();
       setError("");
       setNotifications(nextNotifications);
     } catch (reason) {
@@ -80,7 +89,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   useEffect(() => {
     if (!currentUser) return;
     let active = true;
-    void getClientRepository().getNotifications().then(
+    void getCurrentUserNotificationsAction().then(
       (nextNotifications) => {
         if (!active) return;
         setError("");
@@ -93,15 +102,10 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
         setLoading(false);
       },
     );
-    function refreshFromDatabase() { void refresh(); }
-    window.addEventListener(DATABASE_UPDATED_EVENT, refreshFromDatabase);
-    window.addEventListener("storage", refreshFromDatabase);
     return () => {
       active = false;
-      window.removeEventListener(DATABASE_UPDATED_EVENT, refreshFromDatabase);
-      window.removeEventListener("storage", refreshFromDatabase);
     };
-  }, [currentUser, refresh]);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!open) return;
@@ -122,7 +126,8 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
   }, [open]);
 
   const unreadCount = currentUser ? notifications.filter((notification) => !notification.readBy.includes(currentUser.id)).length : 0;
-  const groups = groupNotifications(notifications);
+  const today = todayIso();
+  const groups = groupNotifications(notifications, today);
 
   async function openNotification(notification: WorkspaceNotification) {
     setError("");
@@ -220,7 +225,7 @@ export function NotificationCentre({ currentUser }: { currentUser: User | null }
                             <span className="min-w-0 flex-1">
                               <span className="flex items-start gap-2"><span className="min-w-0 flex-1 text-sm font-semibold leading-5">{notification.title}</span>{unread && <span aria-label="Unread" className="mt-1.5 size-2 shrink-0 rounded-full bg-danger" />}</span>
                               <span className="mt-1 block text-xs leading-5 text-muted-foreground">{notification.message}</span>
-                              <span className="mt-2 block text-xs font-medium text-muted-foreground">{relativeDate(notification.createdAt)}</span>
+                              <span className="mt-2 block text-xs font-medium text-muted-foreground">{relativeDate(notification.createdAt, today)}</span>
                             </span>
                           </button>
                         );

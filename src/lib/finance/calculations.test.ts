@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_INTEREST_TERMS, DEMO_TODAY } from "@/lib/config/demo";
+import { DEFAULT_INTEREST_TERMS } from "@/lib/config/defaults";
 import { accruedInterest, allocatePayment, calculateVillaFinancials, interestOutstanding, paymentStatus, totalOutstanding } from "@/lib/finance/calculations";
 import type { PaymentSchedule } from "@/lib/domain/types";
+
+// A fixed date for deterministic assertions — unrelated to the app's real clock
+// (workspace_today() in Postgres), which is what the app itself always uses.
+const DEMO_TODAY = "2026-08-28";
 
 function createSchedule(overrides: Partial<PaymentSchedule> = {}): PaymentSchedule {
   return {

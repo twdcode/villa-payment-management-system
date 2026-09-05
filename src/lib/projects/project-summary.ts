@@ -1,4 +1,3 @@
-import { DEMO_TODAY } from "@/lib/config/demo";
 import { calculateVillaFinancials, roundMoney } from "@/lib/finance/calculations";
 import type { MockDatabase, Project, Villa } from "@/lib/domain/types";
 
@@ -21,7 +20,7 @@ export function deriveProjectSummaries(database: MockDatabase): ProjectSummary[]
         const storedTerms = { ...database.settings.defaultInterestTerms, ...villa.interestTerms };
         const terms = villa.chargeLatePaymentInterest === false ? { ...storedTerms, monthlyRate: 0 } : storedTerms;
         const schedules = database.schedules.filter((schedule) => schedule.villaId === villa.id);
-        const calculatedFinancials = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
+        const calculatedFinancials = calculateVillaFinancials(schedules, terms, database.today);
         const villaFinancials = { ...calculatedFinancials, outstandingPrincipal: roundMoney(calculatedFinancials.outstandingPrincipal + Math.max(0, villa.value - calculatedFinancials.totalValue)) };
         return {
           principalCollected: roundMoney(totals.principalCollected + villaFinancials.principalCollected),

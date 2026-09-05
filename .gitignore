@@ -42,3 +42,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated docs — regenerate with `npm run docs:typedoc`, never hand-edited
+/.typedoc/

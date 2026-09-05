@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { seedDatabase } from "@/lib/mock/seed-data";
+import { seedDatabase } from "@/lib/testing/fixtures";
 import { deriveProjectSummaries } from "@/lib/projects/project-summary";
 
 describe("deriveProjectSummaries", () => {

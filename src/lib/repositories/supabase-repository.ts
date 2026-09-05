@@ -144,9 +144,7 @@ async function withReadState(notifications: WorkspaceNotification[], userId: str
  *
  * Shared by `getCollections` and `getDatabase` so the "active villas only" rule — a
  * cancelled villa's collections are hidden from view, though never deleted — exists in
- * one place. `local-storage-repository.ts` applies the same filter; this must match it
- * exactly or a cancelled villa's history would appear or disappear depending on which
- * data source is active.
+ * one place.
  */
 /**
  * Everything `getDatabase()` returns.
@@ -156,31 +154,59 @@ async function withReadState(notifications: WorkspaceNotification[], userId: str
  * shape the mock produces, from real tables and views.
  */
 async function assembleDatabase(): Promise<MockDatabase> {
-  const userRows = await db.select().from(schema.users);
-  const projectRows = await db.select().from(schema.projects).where(isNull(schema.projects.deletedAt));
-  const villaRows = await db
-    .select({ villa: schema.villas, customerLink: schema.villaCustomers, terms: schema.villaInterestTerms })
-    .from(schema.villas)
-    .leftJoin(schema.villaCustomers, and(eq(schema.villaCustomers.villaId, schema.villas.id), isNull(schema.villaCustomers.unassignedAt)))
-    .leftJoin(schema.villaInterestTerms, eq(schema.villaInterestTerms.villaId, schema.villas.id))
-    .where(isNull(schema.villas.deletedAt));
-  const customerRows = await db.select().from(schema.customers).where(isNull(schema.customers.deletedAt));
-  const scheduleRows = await queryView<Parameters<typeof toPaymentSchedule>[0]>(sql`SELECT * FROM v_stage_position ORDER BY stage_no`);
-  const collections = await fetchCollections({});
-  const receiptRows = await queryView<{ id: string; number: string; collectionId: string; issuedAt: string; principalAmount: string; interestAmount: string; totalAmount: string }>(
-    sql`SELECT * FROM v_receipts`,
-  );
-  const noteRows = await db.select().from(schema.notes).where(isNull(schema.notes.deletedAt));
-  const documentRows = await db.select().from(schema.documents).where(isNull(schema.documents.deletedAt));
-  const templateRows = await db.select().from(schema.reminderTemplates).where(isNull(schema.reminderTemplates.deletedAt));
-  const reminderLogRows = await db.select().from(schema.reminderLogs);
-  const reminderRequestRows = await db.select().from(schema.reminderRequests);
-  const settings = await assembleSettings();
-  const activityEventRows = await db
-    .select({ event: schema.activityEvents, collection: schema.collections })
-    .from(schema.activityEvents)
-    .leftJoin(schema.collections, eq(schema.collections.id, schema.activityEvents.collectionId))
-    .where(eq(schema.activityEvents.type, "payment_recorded"));
+  // These reads are independent of each other, so they go out together rather than one
+  // at a time. The database is ~60ms away (ap-south-1), and running them sequentially
+  // meant every page paid 14 x 60ms in round trips before rendering: measured at ~1479ms
+  // sequential vs ~482ms parallel against this project.
+  //
+  // This is only safe on the SESSION pooler (port 5432). On the transaction pooler
+  // (6543) a concurrent burst like this hangs forever — see the measurements in
+  // `lib/db/client.ts`. If someone ever moves DATABASE_URL back to 6543, this function
+  // is the first thing that will stop working.
+  const [
+    today,
+    userRows,
+    projectRows,
+    villaRows,
+    customerRows,
+    scheduleRows,
+    collections,
+    receiptRows,
+    noteRows,
+    documentRows,
+    templateRows,
+    reminderLogRows,
+    reminderRequestRows,
+    settings,
+    activityEventRows,
+  ] = await Promise.all([
+    getWorkspaceToday(),
+    db.select().from(schema.users),
+    db.select().from(schema.projects).where(isNull(schema.projects.deletedAt)),
+    db
+      .select({ villa: schema.villas, customerLink: schema.villaCustomers, terms: schema.villaInterestTerms })
+      .from(schema.villas)
+      .leftJoin(schema.villaCustomers, and(eq(schema.villaCustomers.villaId, schema.villas.id), isNull(schema.villaCustomers.unassignedAt)))
+      .leftJoin(schema.villaInterestTerms, eq(schema.villaInterestTerms.villaId, schema.villas.id))
+      .where(isNull(schema.villas.deletedAt)),
+    db.select().from(schema.customers).where(isNull(schema.customers.deletedAt)),
+    queryView<Parameters<typeof toPaymentSchedule>[0]>(sql`SELECT * FROM v_stage_position ORDER BY stage_no`),
+    fetchCollections({}),
+    queryView<{ id: string; number: string; collectionId: string; issuedAt: string; principalAmount: string; interestAmount: string; totalAmount: string }>(
+      sql`SELECT * FROM v_receipts`,
+    ),
+    db.select().from(schema.notes).where(isNull(schema.notes.deletedAt)),
+    db.select().from(schema.documents).where(isNull(schema.documents.deletedAt)),
+    db.select().from(schema.reminderTemplates).where(isNull(schema.reminderTemplates.deletedAt)),
+    db.select().from(schema.reminderLogs),
+    db.select().from(schema.reminderRequests),
+    assembleSettings(),
+    db
+      .select({ event: schema.activityEvents, collection: schema.collections })
+      .from(schema.activityEvents)
+      .leftJoin(schema.collections, eq(schema.collections.id, schema.activityEvents.collectionId))
+      .where(eq(schema.activityEvents.type, "payment_recorded")),
+  ]);
 
   const villas = villaRows.map((row) => toVilla({ ...row.villa, customerId: row.customerLink?.customerId ?? null }, row.terms));
   const schedules = scheduleRows.map(toPaymentSchedule);
@@ -188,6 +214,7 @@ async function assembleDatabase(): Promise<MockDatabase> {
   const receiptsByCollection = new Map(receipts.map((receipt) => [receipt.collectionId, receipt]));
 
   const database: MockDatabase = {
+    today,
     users: userRows.map(toUser),
     projects: projectRows.map(toProject),
     villas,
@@ -225,7 +252,6 @@ async function assembleDatabase(): Promise<MockDatabase> {
     })
     .filter((notification): notification is WorkspaceNotification => notification !== null);
 
-  const today = await getWorkspaceToday();
   database.notifications = syncNotifications({ ...database, notifications: paymentRecordedNotifications }, today);
 
   return database;
@@ -264,8 +290,7 @@ function toReminderApproval(row: {
 
 /**
  * Makes one grace period the default: `isDefault` on it alone, force it active, and
- * mirror its days onto `interest_defaults` so the two never disagree. Mirrors
- * `withGracePeriodDefault` in `local-storage-repository.ts` exactly.
+ * mirror its days onto `interest_defaults` so the two never disagree.
  */
 async function applyGracePeriodDefault(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], defaultId: string): Promise<void> {
   const [selected] = await tx.select().from(schema.gracePeriods).where(eq(schema.gracePeriods.id, defaultId));
@@ -1244,10 +1269,6 @@ export class SupabaseRepository implements Repository {
       await writeAuditLog(tx, { tableName: "project_schedule_templates", recordId: input.projectId, action: "update", before, after, actorId: currentUser.id });
       return assembleSettings(tx);
     });
-  }
-
-  resetDemoData(): Promise<void> {
-    throw new NotImplementedError("resetDemoData");
   }
 }
 

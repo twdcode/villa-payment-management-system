@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildDashboardSnapshot } from "@/lib/dashboard/snapshot";
-import { seedDatabase } from "@/lib/mock/seed-data";
+import { seedDatabase } from "@/lib/testing/fixtures";
 
 describe("dashboard snapshot", () => {
   it("calculates portfolio totals from active villa schedules", () => {

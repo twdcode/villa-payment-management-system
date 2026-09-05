@@ -16,15 +16,12 @@ import {
   WalletCards,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
-import { Button } from "@/components/ui/button";
-import { DEMO_TODAY } from "@/lib/config/demo";
 import { buildDashboardSnapshot, type DashboardPaymentStatus } from "@/lib/dashboard/snapshot";
 import type { MockDatabase } from "@/lib/domain/types";
 import { formatLkr, formatLkrCompact } from "@/lib/formatters";
-import { getClientRepository } from "@/lib/repositories/client";
 import { isVillaActive } from "@/lib/domain/villa-status";
 
 
@@ -144,31 +141,12 @@ function CustomerNotes({ notes }: { notes: ReturnType<typeof buildDashboardSnaps
  * project yet) `page.tsx` cannot call the repository server-side, so this stays optional
  * and the `useEffect` below covers that case exactly as before.
  */
-export function DashboardPageClient({ initialData }: { initialData?: MockDatabase } = {}) {
-  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null);
-  const [loadError, setLoadError] = useState("");
+export function DashboardPageClient({ database }: { database: MockDatabase }) {
   const [projectId, setProjectId] = useState("all");
   const [villaId, setVillaId] = useState("all");
 
-  function retryLoad() {
-    setLoadError("");
-    void getClientRepository().getDatabase().then(setDatabase).catch(() => setLoadError("Unable to load the dashboard data."));
-  }
-
-  useEffect(() => {
-    if (initialData) return;
-    let active = true;
-    void getClientRepository().getDatabase()
-      .then((result) => { if (active) setDatabase(result); })
-      .catch(() => { if (active) setLoadError("Unable to load the dashboard data."); });
-    return () => { active = false; };
-  }, [initialData]);
-  const availableVillas = useMemo(() => !database ? [] : database.villas.filter((villa) => isVillaActive(villa) && (projectId === "all" || villa.projectId === projectId)), [database, projectId]);
-  const snapshot = useMemo(() => database ? buildDashboardSnapshot(database, { projectId, villaId }) : null, [database, projectId, villaId]);
-
-  if (loadError) return <AppShell active="Dashboard"><div className="rounded-lg border border-danger/30 bg-surface p-6"><p className="font-semibold text-danger">{loadError}</p><Button className="mt-4" onClick={retryLoad} variant="outline">Try again</Button></div></AppShell>;
-  if (!database || !snapshot) return <AppShell active="Dashboard"><p className="text-sm text-muted-foreground">Loading dashboard...</p></AppShell>;
-
+  const availableVillas = useMemo(() => database.villas.filter((villa) => isVillaActive(villa) && (projectId === "all" || villa.projectId === projectId)), [database, projectId]);
+  const snapshot = useMemo(() => buildDashboardSnapshot(database, { projectId, villaId }), [database, projectId, villaId]);
   const metrics = [
     { label: "Total project value", value: snapshot.totalProjectValue, icon: Building2, tone: "default" as const, href: "/projects" },
     { label: "Total collected", value: snapshot.totalCollected, icon: CheckCircle2, tone: "success" as const, href: "/collections" },
@@ -179,7 +157,7 @@ export function DashboardPageClient({ initialData }: { initialData?: MockDatabas
 
   return (
     <AppShell active="Dashboard">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-semibold">Dashboard</h1><p className="mt-2 text-muted-foreground">Your live portfolio and collection priorities as at {formatDate(DEMO_TODAY)}.</p></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><ScopeSelect label="Filter dashboard by project" onChange={(value) => { setProjectId(value); setVillaId("all"); }} value={projectId}><option value="all">All projects</option>{database.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</ScopeSelect><ScopeSelect label="Filter dashboard by villa" onChange={setVillaId} value={villaId}><option value="all">All villas</option>{availableVillas.map((villa) => <option key={villa.id} value={villa.id}>{villaLabel(villa.number)}</option>)}</ScopeSelect></div></div>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-semibold">Dashboard</h1><p className="mt-2 text-muted-foreground">Your live portfolio and collection priorities as at {formatDate(database.today)}.</p></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><ScopeSelect label="Filter dashboard by project" onChange={(value) => { setProjectId(value); setVillaId("all"); }} value={projectId}><option value="all">All projects</option>{database.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</ScopeSelect><ScopeSelect label="Filter dashboard by villa" onChange={setVillaId} value={villaId}><option value="all">All villas</option>{availableVillas.map((villa) => <option key={villa.id} value={villa.id}>{villaLabel(villa.number)}</option>)}</ScopeSelect></div></div>
       <section aria-label="Portfolio summary" className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}</section>
       <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,2.1fr)_minmax(18rem,.95fr)]"><div className="space-y-6"><InterestPanel finalNotices={snapshot.finalNoticeCount} interestCollected={snapshot.interestCollected} interestOutstanding={snapshot.interestOutstanding} reminderCases={snapshot.reminderCaseCount} /><CollectionOverview collected={snapshot.totalCollected} due={snapshot.currentlyDue} future={snapshot.futureOutstanding} overdue={snapshot.overdue} total={snapshot.totalProjectValue} /><UpcomingPayments payments={snapshot.payments} /><CustomerNotes notes={snapshot.customerNotes} /></div><aside className="space-y-6"><AttentionPanel finalCount={snapshot.finalNoticeCount} overdueCount={snapshot.overduePaymentCount} reminderCount={snapshot.reminderCaseCount} total={snapshot.attentionTotal} upcomingCount={snapshot.upcomingPaymentCount} /><LargestOutstanding villas={snapshot.largestOutstanding} />{snapshot.scopedVillaCount === 0 && <div className="rounded-lg border bg-surface p-6 text-center"><Landmark className="mx-auto size-7 text-muted-foreground" /><p className="mt-3 font-semibold">No active villas in this view</p><p className="mt-1 text-sm text-muted-foreground">Choose another project or villa to review its portfolio data.</p></div>}<div className="rounded-lg border bg-surface p-5"><div className="flex items-center gap-3"><CircleDollarSign className="size-5 text-success" /><p className="font-semibold">Data reconciled</p></div><p className="mt-2 text-sm text-muted-foreground">Values are calculated from active villa schedules and recorded stage payments.</p></div></aside></div>
     </AppShell>

@@ -6,7 +6,6 @@ import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { DEMO_TODAY } from "@/lib/config/demo";
 import type { Collection, Customer, MockDatabase, PaymentMethod, Villa } from "@/lib/domain/types";
 import { recordCollectionAction, updateCollectionAction } from "@/lib/actions/collections";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
@@ -50,9 +49,9 @@ export function RecordPaymentDialog({ customer, database, editing, onClose, onSu
   const selectedCustomer = customer ?? database.customers.find((candidate) => candidate.id === selectedVilla?.customerId);
   const schedules = selectedVilla ? database.schedules.filter((schedule) => schedule.villaId === selectedVilla.id) : [];
   const terms = resolveInterestTerms(database.settings, selectedVilla);
-  const financials = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
+  const financials = calculateVillaFinancials(schedules, terms, database.today);
   const [form, setForm] = useState({
-    paymentDate: editing?.paymentDate ?? DEMO_TODAY,
+    paymentDate: editing?.paymentDate ?? database.today,
     amount: editing ? String(editing.totalAmount) : "",
     paymentMethod: editing?.paymentMethod ?? "bank_transfer",
     referenceNumber: editing?.referenceNumber ?? "",

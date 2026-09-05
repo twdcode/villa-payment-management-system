@@ -1,5 +1,33 @@
-import { DEFAULT_INTEREST_TERMS, DEMO_SETTINGS } from "@/lib/config/demo";
-import type { Collection, MockDatabase, PaymentSchedule, Receipt } from "@/lib/domain/types";
+import { DEFAULT_INTEREST_TERMS } from "@/lib/config/defaults";
+import type { Collection, MockDatabase, PaymentSchedule, Receipt, WorkspaceSettings } from "@/lib/domain/types";
+
+/**
+ * A fixed "today" for these fixtures' dates to line up against — matches the dates
+ * baked into the sample schedules/collections below (e.g. `2026-08-28` due dates).
+ * Not the app's real clock; only ever used by tests.
+ */
+export const FIXTURE_TODAY = "2026-08-28";
+
+const FIXTURE_SETTINGS: WorkspaceSettings = {
+  companyName: "Juniper Villa Management",
+  currency: "LKR",
+  timezone: "Asia/Colombo",
+  dateFormat: "dd MMM yyyy",
+  receiptPrefix: "JVM-RCP",
+  defaultChargeLatePaymentInterest: true,
+  defaultInterestTerms: { ...DEFAULT_INTEREST_TERMS },
+  gracePeriods: [
+    {
+      id: "grace-standard",
+      name: "Standard grace period",
+      days: DEFAULT_INTEREST_TERMS.gracePeriodDays,
+      description: "Standard payment extension applied to future villa payment agreements.",
+      isDefault: true,
+      isActive: true,
+    },
+  ],
+  projectPaymentScheduleDefaults: [],
+};
 
 const schedule = (
   id: string,
@@ -70,6 +98,7 @@ const receipts: Receipt[] = [
 }));
 
 export const seedDatabase: MockDatabase = {
+  today: FIXTURE_TODAY,
   users: [
     { id: "user-vishal", name: "Vishal Silva", email: "vishal@juniper.lk", role: "super_admin", isActive: true },
     { id: "user-niro", name: "Niro Perera", email: "niro@juniper.lk", role: "editor", isActive: true },
@@ -174,5 +203,5 @@ export const seedDatabase: MockDatabase = {
     { id: "approval-005", customerId: "customer-dineth", villaId: "villa-oc-07", sendDate: "2026-09-02", requestedBy: "user-niro", requestedAt: "2026-08-29T12:00:00.000Z", status: "sent" },
   ],
   notifications: [],
-  settings: { ...DEMO_SETTINGS, defaultInterestTerms: { ...DEFAULT_INTEREST_TERMS } },
+  settings: FIXTURE_SETTINGS,
 };

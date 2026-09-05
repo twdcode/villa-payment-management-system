@@ -1,4 +1,3 @@
-import { DEMO_TODAY } from "@/lib/config/demo";
 import type { MockDatabase, PaymentSchedule, PaymentStatus, Villa } from "@/lib/domain/types";
 import { addDays, calculateVillaFinancials, daysBetween, isPaymentScheduleReady, paymentStatus, principalOutstanding, roundMoney } from "@/lib/finance/calculations";
 import { isVillaActive } from "@/lib/domain/villa-status";
@@ -63,15 +62,16 @@ function termsForVilla(database: MockDatabase, villa: Villa) {
   return villa.chargeLatePaymentInterest === false ? { ...terms, monthlyRate: 0 } : terms;
 }
 
-function scheduleDashboardStatus(schedule: PaymentSchedule, computedStatus: PaymentStatus): DashboardPaymentStatus {
+function scheduleDashboardStatus(schedule: PaymentSchedule, computedStatus: PaymentStatus, today: string): DashboardPaymentStatus {
   if (computedStatus === "overdue") return "overdue";
-  if (schedule.dueDate <= DEMO_TODAY) return "due";
-  if (schedule.dueDate <= addDays(DEMO_TODAY, 7)) return "due_soon";
-  if (schedule.dueDate <= addDays(DEMO_TODAY, 60)) return "scheduled";
+  if (schedule.dueDate <= today) return "due";
+  if (schedule.dueDate <= addDays(today, 7)) return "due_soon";
+  if (schedule.dueDate <= addDays(today, 60)) return "scheduled";
   return "planned";
 }
 
 export function buildDashboardSnapshot(database: MockDatabase, scope: DashboardScope = {}): DashboardSnapshot {
+  const today = database.today;
   const scopedVillas = database.villas.filter((villa) =>
     isVillaActive(villa) &&
     (!scope.projectId || scope.projectId === "all" || villa.projectId === scope.projectId) &&
@@ -97,7 +97,7 @@ export function buildDashboardSnapshot(database: MockDatabase, scope: DashboardS
     const terms = termsForVilla(database, villa);
     const schedules = database.schedules.filter((schedule) => schedule.villaId === villa.id && isPaymentScheduleReady(schedule));
     if (!schedules.length) continue;
-    const financials = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
+    const financials = calculateVillaFinancials(schedules, terms, today);
     totalProjectValue += financials.totalValue;
     totalCollected += financials.principalCollected;
     outstanding += financials.outstandingPrincipal;
@@ -108,10 +108,10 @@ export function buildDashboardSnapshot(database: MockDatabase, scope: DashboardS
     for (const schedule of schedules) {
       const amount = principalOutstanding(schedule);
       if (amount <= 0) continue;
-      const computedStatus = paymentStatus(schedule, DEMO_TODAY);
-      if (schedule.dueDate <= DEMO_TODAY && computedStatus !== "overdue") currentlyDue += amount;
+      const computedStatus = paymentStatus(schedule, today);
+      if (schedule.dueDate <= today && computedStatus !== "overdue") currentlyDue += amount;
       if (computedStatus === "overdue") {
-        const daysAfterDue = daysBetween(schedule.dueDate, DEMO_TODAY);
+        const daysAfterDue = daysBetween(schedule.dueDate, today);
         if (daysAfterDue >= terms.finalNoticeDaysAfterDue) finalNoticeCount += 1;
         else if (daysAfterDue >= terms.reminderDaysAfterDue) reminderCaseCount += 1;
       }
@@ -121,8 +121,8 @@ export function buildDashboardSnapshot(database: MockDatabase, scope: DashboardS
         customerName: villa.customerId ? customerNames.get(villa.customerId) ?? "Unassigned customer" : "Unassigned customer",
         projectName: projectNames.get(villa.projectId) ?? "Unknown project",
         amount,
-        daysUntilDue: schedule.dueDate >= DEMO_TODAY ? daysBetween(DEMO_TODAY, schedule.dueDate) : -daysBetween(schedule.dueDate, DEMO_TODAY),
-        status: scheduleDashboardStatus(schedule, computedStatus),
+        daysUntilDue: schedule.dueDate >= today ? daysBetween(today, schedule.dueDate) : -daysBetween(schedule.dueDate, today),
+        status: scheduleDashboardStatus(schedule, computedStatus, today),
       });
     }
 
@@ -139,7 +139,7 @@ export function buildDashboardSnapshot(database: MockDatabase, scope: DashboardS
 
   payments.sort((left, right) => left.schedule.dueDate.localeCompare(right.schedule.dueDate) || left.villa.number.localeCompare(right.villa.number));
   largestOutstanding.sort((left, right) => right.outstanding - left.outstanding);
-  const upcomingPaymentCount = payments.filter((payment) => payment.schedule.dueDate > DEMO_TODAY && payment.schedule.dueDate <= addDays(DEMO_TODAY, 60)).length;
+  const upcomingPaymentCount = payments.filter((payment) => payment.schedule.dueDate > today && payment.schedule.dueDate <= addDays(today, 60)).length;
   const overduePaymentCount = payments.filter((payment) => payment.status === "overdue").length;
   const futureOutstanding = roundMoney(Math.max(0, outstanding - currentlyDue - overdue));
   const totalInterest = interestCollected + interestOutstanding;

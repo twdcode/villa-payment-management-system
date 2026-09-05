@@ -1,7 +1,7 @@
 "use client";
 
 import { Bell, CalendarDays, CheckCircle2, ChevronRight, Clock3, FileClock, Plus, Settings2, Trash2, UsersRound, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod";
 
 import { AppShell } from "@/components/layout/app-shell";
@@ -11,9 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { UserAccessPanel } from "@/components/settings/user-access-panel";
-import { DEFAULT_PAYMENT_SCHEDULE_STAGES } from "@/lib/config/demo";
+import { DEFAULT_PAYMENT_SCHEDULE_STAGES } from "@/lib/config/defaults";
 import type { InterestTerms, MockDatabase, PaymentScheduleDefaultStage } from "@/lib/domain/types";
-import { getClientRepository } from "@/lib/repositories/client";
 import { updateApplicationSettingsAction, updateInterestDefaultsAction, updateProjectPaymentScheduleDefaultsAction } from "@/lib/actions/settings";
 import { errorMessage } from "@/lib/errors";
 import { percentToRate, rateToPercent } from "@/lib/domain/rate";
@@ -110,16 +109,13 @@ function SchedulePanel({ database, isSuperAdmin, onSaved }: { database: MockData
 }
 
 /** `initialData`: fetched server-side by `app/settings/page.tsx`. See dashboard-page-client.tsx for why it stays optional. */
-export function WorkspaceSettingsPageClient({ initialData }: { initialData?: MockDatabase } = {}) {
-  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null);
+export function WorkspaceSettingsPageClient({ database: initialDatabase }: { database: MockDatabase }) {
+  const [database, setDatabase] = useState(initialDatabase);
   const [section, setSection] = useState<Section>("application");
   const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
   const currentUser = useCurrentUser();
   const isSuperAdmin = currentUser?.role === "super_admin";
-  useEffect(() => { if (initialData) return; void getClientRepository().getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to load workspace settings."))); }, [initialData]);
   const panel = useMemo(() => {
-    if (!database) return null;
     const onSaved = (nextDatabase: MockDatabase, message: string) => { setDatabase(nextDatabase); setNotice(message); };
     if (section === "application") return <ApplicationPanel database={database} onSaved={onSaved} />;
     if (section === "users") return <UserAccessPanel database={database} onSaved={onSaved} />;
@@ -128,5 +124,5 @@ export function WorkspaceSettingsPageClient({ initialData }: { initialData?: Moc
     if (section === "interest") return <InterestPanel database={database} onSaved={onSaved} />;
     return <SchedulePanel database={database} isSuperAdmin={isSuperAdmin} onSaved={onSaved} />;
   }, [database, isSuperAdmin, section]);
-  return <AppShell active="Settings"><SuccessAlert message={notice} onDismiss={() => setNotice("")} /><div><h1 className="text-3xl font-semibold">Settings</h1><p className="mt-2 text-muted-foreground">Company and workspace preferences.</p></div>{error ? <p className="mt-6 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p> : !database ? <p className="mt-6 text-sm text-muted-foreground">Loading settings...</p> : <div className="mt-8 grid min-w-0 max-w-full gap-6 min-[1360px]:grid-cols-[20rem_minmax(0,1fr)]"><SettingsNavigation active={section} onChange={setSection} />{panel}</div>}</AppShell>;
+  return <AppShell active="Settings"><SuccessAlert message={notice} onDismiss={() => setNotice("")} /><div><h1 className="text-3xl font-semibold">Settings</h1><p className="mt-2 text-muted-foreground">Company and workspace preferences.</p></div><div className="mt-8 grid min-w-0 max-w-full gap-6 min-[1360px]:grid-cols-[20rem_minmax(0,1fr)]"><SettingsNavigation active={section} onChange={setSection} />{panel}</div></AppShell>;
 }

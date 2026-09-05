@@ -240,6 +240,14 @@ export type WorkspaceSettings = {
 };
 
 export type MockDatabase = {
+  /**
+   * The workspace's current date, `YYYY-MM-DD`. Every overdue/due-soon/interest
+   * calculation in the UI must use this, never the browser's own clock or a hardcoded
+   * value — it is `workspace_today()` from the database (overridable server-side for
+   * testing, defaults to real Asia/Colombo time), so the client and the money math in
+   * Postgres always agree on what day it is.
+   */
+  today: string;
   users: User[];
   projects: Project[];
   villas: Villa[];

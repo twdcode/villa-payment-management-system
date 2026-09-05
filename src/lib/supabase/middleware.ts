@@ -8,15 +8,6 @@ const PUBLIC_ROUTES = ["/login", "/auth/reset-password", "/auth/callback"];
 const CHANGE_PASSWORD_ROUTE = "/auth/change-password";
 
 export async function updateSession(request: NextRequest) {
-  // Mock mode has no real Supabase project to check a session against, and no
-  // NEXT_PUBLIC_SUPABASE_* env vars need to exist yet — @supabase/ssr throws
-  // immediately without them. The proxy runs on every request regardless of data
-  // source, so it must not assume Supabase is configured until Phase 2/3's env vars
-  // actually exist for this deployment.
-  if (process.env.NEXT_PUBLIC_DATA_SOURCE !== "supabase") {
-    return NextResponse.next({ request });
-  }
-
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

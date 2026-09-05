@@ -12,8 +12,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { User } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 import { can, roleLabels, type Permission } from "@/lib/permissions/roles";
-import { getClientRepository } from "@/lib/repositories/client";
-import { signOutAction } from "@/lib/auth/actions";
+import { getCurrentUserAction, signOutAction } from "@/lib/auth/actions";
 import { CurrentUserProvider } from "@/components/auth/current-user-provider";
 import { IdleTimeoutGuard } from "@/components/auth/idle-timeout-guard";
 
@@ -36,17 +35,9 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void getClientRepository().getCurrentUser().then(setCurrentUser);
+    void getCurrentUserAction().then(setCurrentUser);
   }, []);
 
-  /**
-   * End the session, then go to the login page.
-   *
-   * `signOutAction` is a Server Action — it clears the auth cookie server-side and
-   * redirects on its own. Calling `getClientRepository().signOut()` here would reach
-   * `SupabaseRepository` from a client component, which Phase 4 established a client
-   * bundle can never safely import.
-   */
   const signOut = useCallback(async () => {
     try {
       await signOutAction();

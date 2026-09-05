@@ -1,4 +1,3 @@
-import { DEMO_TODAY } from "@/lib/config/demo";
 import type { Customer, MockDatabase, Villa, VillaFinancials } from "@/lib/domain/types";
 import { calculateVillaFinancials, roundMoney } from "@/lib/finance/calculations";
 
@@ -14,7 +13,7 @@ export function deriveVillaSummaries(database: MockDatabase, projectId?: string)
     const storedTerms = { ...database.settings.defaultInterestTerms, ...villa.interestTerms };
     const terms = villa.chargeLatePaymentInterest === false ? { ...storedTerms, monthlyRate: 0 } : storedTerms;
     const schedules = database.schedules.filter((schedule) => schedule.villaId === villa.id);
-    const calculatedFinancials = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
+    const calculatedFinancials = calculateVillaFinancials(schedules, terms, database.today);
     const unallocatedBalance = Math.max(0, villa.value - calculatedFinancials.totalValue);
     return {
       villa,

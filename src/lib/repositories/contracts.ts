@@ -135,5 +135,4 @@ export interface Repository {
   updateApplicationSettings(input: ApplicationSettingsInput): Promise<WorkspaceSettings>;
   updateInterestDefaults(input: InterestDefaultsInput): Promise<WorkspaceSettings>;
   updateProjectPaymentScheduleDefaults(input: PaymentScheduleDefaultsInput): Promise<WorkspaceSettings>;
-  resetDemoData(): Promise<void>;
 }

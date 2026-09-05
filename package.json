@@ -13,7 +13,8 @@
     "db:studio": "drizzle-kit studio",
     "check:schema": "node scripts/check-schema-drift.mjs",
     "test:sql": "bash scripts/run-sql-tests.sh",
-    "test:integration": "bash scripts/run-integration-tests.sh"
+    "test:integration": "bash scripts/run-integration-tests.sh",
+    "docs:typedoc": "typedoc"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
@@ -35,6 +36,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -43,6 +45,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "tailwindcss": "^4",
+    "typedoc": "^0.28.20",
     "typescript": "^5",
     "vitest": "^4.1.11"
   }

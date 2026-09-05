@@ -2,15 +2,14 @@
 
 import { CalendarDays, Check, CheckCircle2, CircleUserRound, Clock3, Home, Plus, Search, UserPlus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DEFAULT_PAYMENT_SCHEDULE_STAGES } from "@/lib/config/demo";
+import { DEFAULT_PAYMENT_SCHEDULE_STAGES } from "@/lib/config/defaults";
 import type { Customer, InterestTerms, MockDatabase, VillaOperationalStatus } from "@/lib/domain/types";
 import { villaStatusLabels } from "@/lib/domain/status-labels";
 import type { PaymentScheduleInput, VillaSetupInput } from "@/lib/repositories/contracts";
-import { getClientRepository } from "@/lib/repositories/client";
 import { completeVillaSetupAction } from "@/lib/actions/villas";
 import { errorMessage } from "@/lib/errors";
 import { percentToRate, rateToPercent } from "@/lib/domain/rate";
@@ -51,9 +50,8 @@ function ScheduleEditor({ schedule, setSchedule, defaultGrace }: { schedule: Sch
   return <div className="mt-5 overflow-hidden rounded-2xl border bg-surface"><div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold">Payment schedule</h3><p className="mt-1 text-sm text-muted-foreground">Stages must total the villa value.</p></div><Button onClick={() => setSchedule([...schedule, { id: crypto.randomUUID(), stage: "", dueDate: "", principalAmount: 0, gracePeriodDays: defaultGrace }])} size="sm" type="button" variant="outline"><Plus className="size-4" />Add stage</Button></div><div className="divide-y">{schedule.map((item, index) => <div className="grid gap-3 p-5 md:grid-cols-[1.2fr_1fr_1fr_8rem_auto]" key={item.id}><label className="text-sm font-semibold text-muted-foreground">Stage<Input className="mt-2" onChange={(event) => update(item.id, { stage: event.target.value })} placeholder="e.g. Reservation" value={item.stage} /></label><label className="text-sm font-semibold text-muted-foreground">Due date<Input className="mt-2" onChange={(event) => update(item.id, { dueDate: event.target.value })} type="date" value={item.dueDate} /></label><label className="text-sm font-semibold text-muted-foreground">Principal (LKR)<Input className="mt-2" min="0" onChange={(event) => update(item.id, { principalAmount: Number(event.target.value) })} type="number" value={item.principalAmount || ""} /></label><label className="text-sm font-semibold text-muted-foreground">Grace days<Input className="mt-2" min="0" onChange={(event) => update(item.id, { gracePeriodDays: Number(event.target.value) })} type="number" value={item.gracePeriodDays} /></label><Button aria-label={`Remove schedule stage ${index + 1}`} className="self-end" disabled={schedule.length === 1} onClick={() => setSchedule(schedule.filter((entry) => entry.id !== item.id))} size="icon" type="button" variant="ghost"><X className="size-4" /></Button></div>)}</div></div>;
 }
 
-export function VillaSetupPageClient({ projectId, villaId }: { projectId: string; villaId: string }) {
+export function VillaSetupPageClient({ projectId, villaId, database }: { projectId: string; villaId: string; database: MockDatabase }) {
   const router = useRouter();
-  const [database, setDatabase] = useState<MockDatabase | null>(null);
   const [step, setStep] = useState<Step>(1);
   const [selectedProjectId, setSelectedProjectId] = useState(projectId);
   const [number, setNumber] = useState(numberFromDraft(villaId));
@@ -63,25 +61,23 @@ export function VillaSetupPageClient({ projectId, villaId }: { projectId: string
   const [customerMode, setCustomerMode] = useState<CustomerMode>("unassigned");
   const [customerId, setCustomerId] = useState("");
   const [newCustomer, setNewCustomer] = useState(defaultCustomer);
-  const [interestEnabled, setInterestEnabled] = useState(false);
+  const [interestEnabled, setInterestEnabled] = useState(() => database.settings.defaultChargeLatePaymentInterest);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
-  const [interestTerms, setInterestTerms] = useState<Partial<InterestTerms>>({});
+  const [interestTerms, setInterestTerms] = useState<Partial<InterestTerms>>(() => ({ ...database.settings.defaultInterestTerms }));
   const [schedule, setSchedule] = useState<ScheduleDraft[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { void getClientRepository().getDatabase().then((nextDatabase) => { setDatabase(nextDatabase); setInterestEnabled(nextDatabase.settings.defaultChargeLatePaymentInterest); setInterestTerms({ ...nextDatabase.settings.defaultInterestTerms }); }).catch((reason: unknown) => setError(errorMessage(reason, "Unable to load setup data."))); }, []);
-
-  const selectedProject = database?.projects.find((project) => project.id === selectedProjectId) ?? null;
-  const defaults = database?.settings.defaultInterestTerms;
+  const selectedProject = database.projects.find((project) => project.id === selectedProjectId) ?? null;
+  const defaults = database.settings.defaultInterestTerms;
   const scheduleTotal = schedule.reduce((total, item) => total + item.principalAmount, 0);
   const scheduleMatchesValue = Number(value) > 0 && Math.abs(scheduleTotal - Number(value)) < 0.01;
   const scheduleIsComplete = scheduleEnabled && scheduleMatchesValue && schedule.length > 0 && schedule.every((item) => Boolean(item.stage.trim()) && Boolean(item.dueDate) && item.principalAmount > 0 && item.gracePeriodDays >= 0);
-  const selectedCustomer = database?.customers.find((customer) => customer.id === customerId) ?? null;
+  const selectedCustomer = database.customers.find((customer) => customer.id === customerId) ?? null;
 
   function startSchedule() {
-    const projectDefaults = database?.settings.projectPaymentScheduleDefaults.find((item) => item.projectId === selectedProjectId)?.stages;
-    if (!schedule.length) setSchedule((projectDefaults?.length ? projectDefaults : DEFAULT_PAYMENT_SCHEDULE_STAGES.map((stage) => ({ id: crypto.randomUUID(), stage, deliverables: "", gracePeriodDays: defaults?.gracePeriodDays ?? 30 }))).map((item) => ({ id: crypto.randomUUID(), stage: item.stage, deliverables: item.deliverables, dueDate: "", principalAmount: 0, gracePeriodDays: item.gracePeriodDays })));
+    const projectDefaults = database.settings.projectPaymentScheduleDefaults.find((item) => item.projectId === selectedProjectId)?.stages;
+    if (!schedule.length) setSchedule((projectDefaults?.length ? projectDefaults : DEFAULT_PAYMENT_SCHEDULE_STAGES.map((stage) => ({ id: crypto.randomUUID(), stage, deliverables: "", gracePeriodDays: defaults.gracePeriodDays ?? 30 }))).map((item) => ({ id: crypto.randomUUID(), stage: item.stage, deliverables: item.deliverables, dueDate: "", principalAmount: 0, gracePeriodDays: item.gracePeriodDays })));
     setScheduleEnabled(true);
   }
 
@@ -114,7 +110,6 @@ export function VillaSetupPageClient({ projectId, villaId }: { projectId: string
     } finally { setSaving(false); }
   }
 
-  if (!database || !defaults) return <div className="grid min-h-screen place-items-center bg-background"><div className="h-80 w-[min(70rem,90vw)] animate-pulse rounded-2xl border bg-surface-muted" /></div>;
   if (!selectedProject) return <div className="grid min-h-screen place-items-center bg-background"><p className="rounded-xl border bg-surface px-6 py-5 text-sm font-semibold">Project not found.</p></div>;
 
   return <div className="min-h-screen bg-background"><main className="mx-auto w-full max-w-6xl px-5 pb-36 pt-9 sm:px-8 sm:pt-12"><div className="flex items-start justify-between gap-5"><div><span className="grid size-12 place-items-center rounded-xl bg-surface-muted"><Home className="size-6 text-primary" /></span><h1 className="mt-5 text-3xl font-medium">Set up a villa</h1><p className="mt-2 text-base text-muted-foreground">Only villa details are required. Customer and finance setup can be completed later.</p></div><Button aria-label="Close villa setup" onClick={() => router.push(`/projects/${projectId}/villas/${villaId}`)} size="icon" type="button" variant="ghost"><X className="size-5" /></Button></div><StepProgress step={step} />

@@ -177,6 +177,14 @@ BEGIN
     p_idempotency_key, p_receipt_url, p_notes, p_recorded_by, p_supersedes_id, p_edit_reason
   ) RETURNING id INTO v_collection_id;
 
+  -- No residual-cent problem to solve here: `v_remaining` tracks the payment amount
+  -- exactly via LEAST()/subtraction as it's carved across stages below, and interest is
+  -- rounded exactly once per stage (stage_interest_as_of's single ROUND call), not
+  -- re-rounded per allocation. There is nothing to reconcile at the end because nothing
+  -- independently rounds a piece of the whole — `v_allocated + v_credit = p_amount` is
+  -- asserted below and has never needed a "give the leftover cent to the last stage"
+  -- correction. If a future change introduces per-allocation rounding, that correction
+  -- would need to be added back.
   v_remaining := p_amount;
 
   -- Oldest first. `interest_charged` is brought up to the payment date and frozen there,

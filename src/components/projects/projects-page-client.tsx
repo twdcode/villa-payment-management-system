@@ -2,7 +2,7 @@
 
 import { Building2, CheckCircle2, Pencil, Plus, X } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ import { projectStatusLabels } from "@/lib/domain/status-labels";
 import { formatLkrCompact } from "@/lib/formatters";
 import { can } from "@/lib/permissions/roles";
 import { deriveProjectSummaries, type ProjectSummary } from "@/lib/projects/project-summary";
-import { getClientRepository } from "@/lib/repositories/client";
 import { createProjectAction, updateProjectAction } from "@/lib/actions/projects";
 import { errorMessage } from "@/lib/errors";
 
@@ -114,35 +113,15 @@ function ProjectFormDialog({ onOpenChange, onSaved, open, project }: { onOpenCha
   );
 }
 
-/** `initialData`: fetched server-side by `app/projects/page.tsx`. See dashboard-page-client.tsx for why it stays optional. */
-export function ProjectsPageClient({ initialData }: { initialData?: { database: MockDatabase; currentUser: User } } = {}) {
-  const [projects, setProjects] = useState<ProjectSummary[]>(initialData ? deriveProjectSummaries(initialData.database) : []);
-  const [user, setUser] = useState<User | null>(initialData?.currentUser ?? null);
+export function ProjectsPageClient({ database, currentUser }: { database: MockDatabase; currentUser: User }) {
+  const [projects, setProjects] = useState<ProjectSummary[]>(() => deriveProjectSummaries(database));
   const [status, setStatus] = useState<ProjectStatus>("active");
-  const [loading, setLoading] = useState(!initialData);
-  const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
 
-  useEffect(() => {
-    if (initialData) return;
-    let active = true;
-    void Promise.all([getClientRepository().getDatabase(), getClientRepository().getCurrentUser()]).then(([database, currentUser]) => {
-      if (!active) return;
-      setProjects(deriveProjectSummaries(database));
-      setUser(currentUser);
-      setLoading(false);
-    }).catch((reason: unknown) => {
-      if (!active) return;
-      setError(errorMessage(reason, "Unable to load projects."));
-      setLoading(false);
-    });
-    return () => { active = false; };
-  }, [initialData]);
-
   const visibleProjects = useMemo(() => projects.filter((summary) => summary.project.status === status), [projects, status]);
-  const canManageProjects = user ? can(user.role, "manage_projects") : false;
+  const canManageProjects = can(currentUser.role, "manage_projects");
 
   function handleSaved(project: Project, message: string) {
     setProjects((current) => {
@@ -159,8 +138,7 @@ export function ProjectsPageClient({ initialData }: { initialData?: { database: 
         <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start"><div><h1 className="font-display text-3xl font-semibold">Projects &amp; Villa</h1><p className="mt-2 text-base text-muted-foreground">Manage developments and their villa inventory.</p></div>{canManageProjects && <Button className="w-full border-accent bg-surface text-foreground shadow-none hover:bg-surface-muted sm:w-auto" onClick={() => { setEditingProject(null); setDialogOpen(true); }} size="lg" variant="outline">Add Project <Plus className="size-5" /></Button>}</div>
         <div aria-label="Project status filter" className="mt-9 flex items-center gap-4" role="tablist">{(["active", "completed"] as const).map((tab) => <button aria-selected={status === tab} className={`h-12 rounded-xl border px-5 text-sm font-semibold transition-colors ${status === tab ? "bg-surface-muted text-foreground" : "bg-surface text-muted-foreground hover:bg-surface-muted"}`} key={tab} onClick={() => setStatus(tab)} role="tab" type="button">{tab === "active" ? "Active" : "Complete"}</button>)}</div>
         {feedback && <div className="mt-6 flex items-center justify-between gap-3 rounded-md bg-success/10 px-4 py-3 text-sm font-medium text-success" role="status"><span className="flex items-center gap-2"><CheckCircle2 className="size-4" />{feedback}</span><button aria-label="Dismiss success message" className="rounded-md p-1 hover:bg-success/20" onClick={() => setFeedback("")}><X className="size-4" /></button></div>}
-        {error && <div className="mt-6 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</div>}
-        {loading ? <div className="mt-9 grid gap-6 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((item) => <div className="h-94 animate-pulse rounded-xl border bg-surface-muted" key={item} />)}</div> : visibleProjects.length === 0 ? <div className="mt-9 grid min-h-80 place-items-center rounded-xl border border-dashed bg-surface-subtle px-6 text-center"><div><Building2 aria-hidden="true" className="mx-auto size-8 text-accent" /><h2 className="mt-4 text-lg font-semibold">No {status === "active" ? "active" : "completed"} projects</h2><p className="mt-2 text-sm text-muted-foreground">Projects with this status will appear here.</p></div></div> : <section className="mt-9 grid gap-6 md:grid-cols-2 xl:grid-cols-3" role="tabpanel">{visibleProjects.map((project) => <ProjectCard editable={canManageProjects} key={project.project.id} onEdit={(selectedProject) => { setEditingProject(selectedProject); setDialogOpen(true); }} project={project} />)}</section>}
+        {visibleProjects.length === 0 ? <div className="mt-9 grid min-h-80 place-items-center rounded-xl border border-dashed bg-surface-subtle px-6 text-center"><div><Building2 aria-hidden="true" className="mx-auto size-8 text-accent" /><h2 className="mt-4 text-lg font-semibold">No {status === "active" ? "active" : "completed"} projects</h2><p className="mt-2 text-sm text-muted-foreground">Projects with this status will appear here.</p></div></div> : <section className="mt-9 grid gap-6 md:grid-cols-2 xl:grid-cols-3" role="tabpanel">{visibleProjects.map((project) => <ProjectCard editable={canManageProjects} key={project.project.id} onEdit={(selectedProject) => { setEditingProject(selectedProject); setDialogOpen(true); }} project={project} />)}</section>}
       </div>
       <ProjectFormDialog key={`${dialogOpen}-${editingProject?.id ?? "new"}`} onOpenChange={setDialogOpen} onSaved={handleSaved} open={dialogOpen} project={editingProject} />
     </AppShell>

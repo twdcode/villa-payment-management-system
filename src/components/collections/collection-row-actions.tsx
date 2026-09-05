@@ -7,7 +7,6 @@ import { z } from "zod";
 import { RecordPaymentDialog } from "@/components/collections/record-payment-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { DEMO_TODAY } from "@/lib/config/demo";
 import type { Collection, MockDatabase } from "@/lib/domain/types";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
 import { formatLkr } from "@/lib/formatters";
@@ -51,7 +50,7 @@ export function CollectionRowActions({ collection, database }: { collection: Col
   const project = database.projects.find((candidate) => candidate.id === collection.projectId);
   const schedules = database.schedules.filter((schedule) => schedule.villaId === collection.villaId);
   const terms = resolveInterestTerms(database.settings, villa);
-  const financials = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
+  const financials = calculateVillaFinancials(schedules, terms, database.today);
   const nextPaymentDueDate = schedules.filter((schedule) => schedule.principalPaid < schedule.principalAmount).sort((left, right) => left.dueDate.localeCompare(right.dueDate))[0]?.dueDate ?? "Payment due date";
   const villaName = villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Villa";
   if (!customer || !villa || !project) return null;
@@ -61,7 +60,7 @@ export function CollectionRowActions({ collection, database }: { collection: Col
 function PrepareReminderDialog({ amount, companyName, customerName, database, dueDate, onClose, onSuccess, projectName, villa, villaName }: { amount: number; companyName: string; customerName: string; database: MockDatabase; dueDate: string; onClose: () => void; onSuccess: (message: string) => void; projectName: string; villa: { id: string; customerId: string | null }; villaName: string }) {
   const defaultTemplate = database.reminderTemplates.find((template) => template.type === "overdue" && template.isActive) ?? database.reminderTemplates.find((template) => template.isActive);
   const fields = { amount, companyName, customerName, dueDate, villaName };
-  const [form, setForm] = useState(() => ({ templateId: defaultTemplate?.id ?? "", sendDate: DEMO_TODAY, subject: defaultTemplate ? templateText(defaultTemplate.subject, fields) : "", message: defaultTemplate ? templateText(defaultTemplate.message, fields) : "", attachmentName: "" }));
+  const [form, setForm] = useState(() => ({ templateId: defaultTemplate?.id ?? "", sendDate: database.today, subject: defaultTemplate ? templateText(defaultTemplate.subject, fields) : "", message: defaultTemplate ? templateText(defaultTemplate.message, fields) : "", attachmentName: "" }));
   const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
   const activeTemplates = database.reminderTemplates.filter((template) => template.isActive);
   function selectTemplate(templateId: string) { const template = activeTemplates.find((candidate) => candidate.id === templateId); if (!template) return; setForm((current) => ({ ...current, templateId, subject: templateText(template.subject, fields), message: templateText(template.message, fields) })); }

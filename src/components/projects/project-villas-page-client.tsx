@@ -3,7 +3,7 @@
 import { ChevronDown, Eye, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,6 @@ import type { MockDatabase, VillaOperationalStatus } from "@/lib/domain/types";
 import { villaStatusLabels } from "@/lib/domain/status-labels";
 import { formatLkr } from "@/lib/formatters";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
-import { getClientRepository } from "@/lib/repositories/client";
-import { errorMessage } from "@/lib/errors";
 
 
 type VillaRow = { kind: "configured"; summary: VillaSummary } | { kind: "placeholder"; id: string; number: string };
@@ -68,23 +66,13 @@ function VillaTable({ projectId, rows }: { projectId: string; rows: VillaRow[] }
   );
 }
 
-/** `initialData`: fetched server-side by `app/projects/[projectId]/page.tsx`. See dashboard-page-client.tsx for why it stays optional. */
-export function ProjectVillasPageClient({ projectId, initialData }: { projectId: string; initialData?: MockDatabase }) {
-  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null);
+export function ProjectVillasPageClient({ projectId, database }: { projectId: string; database: MockDatabase }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
-  const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (initialData) return;
-    let active = true;
-    void getClientRepository().getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(errorMessage(reason, "Unable to load villas.")); });
-    return () => { active = false; };
-  }, [initialData]);
-
-  const project = database?.projects.find((candidate) => candidate.id === projectId) ?? null;
+  const project = database.projects.find((candidate) => candidate.id === projectId) ?? null;
   const rows = useMemo<VillaRow[]>(() => {
-    if (!database || !project) return [];
+    if (!project) return [];
     const configured = deriveVillaSummaries(database, projectId).map((summary) => ({ kind: "configured" as const, summary }));
     const usedNumbers = new Set(configured.map((item) => formattedVillaNumber(item.summary.villa.number)));
     const placeholders = Array.from({ length: project.plannedVillaCount ?? 0 }, (_, index) => String(index + 1).padStart(2, "0"))
@@ -110,7 +98,7 @@ export function ProjectVillasPageClient({ projectId, initialData }: { projectId:
   return (
     <AppShell active="Projects & Villas">
       <div className="max-w-none">
-        {error ? <p className="rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p> : !database ? <div className="h-80 animate-pulse rounded-xl border bg-surface-muted" /> : !project ? <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><h1 className="text-xl font-semibold">Project not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href="/projects">Return to projects</Link></div></div> : <>
+        {!project ? <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><h1 className="text-xl font-semibold">Project not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href="/projects">Return to projects</Link></div></div> : <>
           <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start"><div><Link className="text-sm font-semibold text-muted-foreground hover:text-foreground" href="/projects">Projects &amp; Villa</Link><h1 className="mt-3 font-display text-3xl font-semibold">Villas</h1><p className="mt-2 text-base text-muted-foreground">{project.name} <span aria-hidden="true">·</span> Track availability, owners and financial position.</p></div><Button asChild className="w-full border-accent bg-surface text-foreground shadow-none sm:w-auto" size="lg" variant="outline"><Link href={`/projects/${projectId}/villas/draft-${nextVillaNumber}/setup`}>Add Villa <Plus className="size-5" /></Link></Button></div>
           <div className="mt-9 flex flex-col gap-4 lg:flex-row"><label className="relative max-w-2xl flex-1"><Search aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" /><Input className="h-14 border-accent pl-12 text-base" onChange={(event) => setSearch(event.target.value)} placeholder="Search villa name or customer name" type="search" value={search} /></label><label className="relative w-full lg:w-60"><span className="sr-only">Villa status</span><select className="h-14 w-full appearance-none rounded-xl border border-accent bg-surface px-5 text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setStatus(event.target.value as StatusFilter)} value={status}><option value="all">Status</option>{Object.entries(villaStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" /></label></div>
           {visibleRows.length === 0 ? <div className="mt-5 grid min-h-64 place-items-center rounded-xl border border-dashed bg-surface px-6 text-center"><div><Eye aria-hidden="true" className="mx-auto size-7 text-accent" /><h2 className="mt-4 font-semibold">No matching villas</h2><p className="mt-2 text-sm text-muted-foreground">Try another search or status.</p></div></div> : <div className="mt-5"><VillaTable projectId={projectId} rows={visibleRows} /></div>}

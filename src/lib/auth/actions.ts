@@ -6,7 +6,9 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { requireUser } from "@/lib/auth/guard";
+import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
+import type { User } from "@/lib/domain/types";
 import { eq } from "drizzle-orm";
 
 /**
@@ -30,26 +32,12 @@ const passwordSchema = z
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-/**
- * `false` once real auth is configured (Phase 2/3's env vars set, `NEXT_PUBLIC_DATA_SOURCE`
- * = "supabase"). Every exported action below checks this first — none of them can reach
- * `createClient()` or `db` safely without a real Supabase project, and the login form is
- * always mounted, so submitting it in mock mode must not throw.
- */
-function isMockMode(): boolean {
-  return process.env.NEXT_PUBLIC_DATA_SOURCE !== "supabase";
-}
-
 export async function signInAction(formData: FormData): Promise<ActionResult> {
   const parsed = signInSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? INVALID_CREDENTIALS };
-
-  // Mock mode has no real user to authenticate — match the pre-Phase-3 mock login,
-  // which accepted any submission and went straight to the dashboard.
-  if (isMockMode()) return { ok: true };
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword(parsed.data);
@@ -66,12 +54,21 @@ export async function signInAction(formData: FormData): Promise<ActionResult> {
 }
 
 export async function signOutAction(): Promise<void> {
-  if (isMockMode()) {
-    redirect("/login");
-  }
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/login");
+}
+
+/**
+ * The signed-in user, or null.
+ *
+ * `AppShell` needs this everywhere — the sidebar, notifications, permission-gated nav
+ * items — and calls it from a `useEffect`, before a session is guaranteed to exist.
+ * `getSessionUser()` reads the real session server-side; returning `null` here rather
+ * than throwing keeps that timing safe.
+ */
+export async function getCurrentUserAction(): Promise<User | null> {
+  return getSessionUser();
 }
 
 /**
@@ -81,7 +78,6 @@ export async function signOutAction(): Promise<void> {
  * borrowed unlocked laptop should not be enough to lock the owner out of their account.
  */
 export async function changePasswordAction(formData: FormData): Promise<ActionResult> {
-  if (isMockMode()) return { ok: false, error: "Password changes require a live Supabase project. Not available in demo mode." };
   const user = await requireUser();
 
   const parsed = z
@@ -136,8 +132,6 @@ export async function requestPasswordResetAction(formData: FormData): Promise<Ac
   const parsed = z.string().trim().toLowerCase().email().safeParse(formData.get("email"));
   if (!parsed.success) return { ok: false, error: "Enter a valid email address." };
 
-  if (isMockMode()) return { ok: false, error: "Password reset requires a live Supabase project. Not available in demo mode." };
-
   const supabase = await createClient();
   await supabase.auth.resetPasswordForEmail(parsed.data, {
     redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/auth/callback?next=/auth/change-password`,
@@ -147,7 +141,6 @@ export async function requestPasswordResetAction(formData: FormData): Promise<Ac
 
 /** Set a new password from an emailed reset link. The link is the proof of identity. */
 export async function completePasswordResetAction(formData: FormData): Promise<ActionResult> {
-  if (isMockMode()) return { ok: false, error: "Password reset requires a live Supabase project. Not available in demo mode." };
   const user = await requireUser();
 
   const parsed = z

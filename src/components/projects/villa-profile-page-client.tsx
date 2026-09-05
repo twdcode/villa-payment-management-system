@@ -3,14 +3,14 @@
 import { AlertTriangle, ArrowLeft, Building2, CalendarDays, CheckCircle2, Clock3, FileText, Home, Info, Pencil, Plus, ShieldAlert, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod";
 
 import { RecordPaymentDialog } from "@/components/collections/record-payment-dialog";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { DEFAULT_PAYMENT_SCHEDULE_STAGES } from "@/lib/config/demo";
+import { DEFAULT_PAYMENT_SCHEDULE_STAGES } from "@/lib/config/defaults";
 import type { InterestTerms, MockDatabase, PaymentSchedule, PaymentStatus, Villa } from "@/lib/domain/types";
 import { paymentStatusLabels, villaStatusLabels } from "@/lib/domain/status-labels";
 import { formatLkr } from "@/lib/formatters";
@@ -18,7 +18,6 @@ import { interestOutstanding, isPaymentScheduleReady, principalOutstanding, tota
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
 import { can } from "@/lib/permissions/roles";
 import type { PaymentScheduleUpdateInput } from "@/lib/repositories/contracts";
-import { getClientRepository } from "@/lib/repositories/client";
 import { updatePaymentScheduleAction, updateVillaInterestTermsAction, cancelVillaAction, deleteVillaPermanentlyAction, addVillaNoteAction, addVillaDocumentAction } from "@/lib/actions/villas";
 import { resolveInterestTerms, storedInterestTerms } from "@/lib/domain/interest-terms";
 import { errorMessage } from "@/lib/errors";
@@ -295,22 +294,14 @@ function ConfiguredVillaProfile({ database, onCollectionSaved, onInterestSaved, 
 }
 
 /** `initialData`: fetched server-side by `app/projects/[projectId]/villas/[villaId]/page.tsx`. See dashboard-page-client.tsx for why it stays optional. */
-export function VillaProfilePageClient({ projectId, villaId, initialData }: { projectId: string; villaId: string; initialData?: MockDatabase }) {
-  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null);
-  const [error, setError] = useState("");
+export function VillaProfilePageClient({ projectId, villaId, database }: { projectId: string; villaId: string; database: MockDatabase }) {
+  const router = useRouter();
   const [feedback, setFeedback] = useState("");
 
-  useEffect(() => {
-    if (initialData) return;
-    let active = true;
-    void getClientRepository().getDatabase().then((nextDatabase) => { if (active) setDatabase(nextDatabase); }).catch((reason: unknown) => { if (active) setError(errorMessage(reason, "Unable to load villa.")); });
-    return () => { active = false; };
-  }, [initialData]);
-
-  const project = database?.projects.find((candidate) => candidate.id === projectId) ?? null;
-  const summary = useMemo(() => database ? deriveVillaSummaries(database, projectId).find((item) => item.villa.id === villaId) ?? null : null, [database, projectId, villaId]);
+  const project = database.projects.find((candidate) => candidate.id === projectId) ?? null;
+  const summary = useMemo(() => deriveVillaSummaries(database, projectId).find((item) => item.villa.id === villaId) ?? null, [database, projectId, villaId]);
   const placeholderNumber = villaId.startsWith("draft-") ? villaId.replace("draft-", "").padStart(2, "0") : "";
   const searchParams = useSearchParams();
 
-  return <AppShell active="Projects & Villas"><div className="max-w-none">{feedback && <div className="fixed right-4 top-4 z-40 flex w-[calc(100%-2rem)] max-w-xl items-center justify-between gap-3 rounded-lg border border-success bg-success px-4 py-4 text-sm font-medium text-primary-foreground shadow-lg" role="status"><span className="flex items-center gap-3"><Info className="size-5" />{feedback}</span><button aria-label="Dismiss success message" className="rounded-md p-1 hover:bg-primary-foreground/15" onClick={() => setFeedback("")}><X className="size-4" /></button></div>}{searchParams.get("created") === "1" && <div className="mb-6 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-semibold text-success" role="status"><CheckCircle2 className="size-5" />Villa profile created successfully.</div>}{error ? <p className="rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p> : !database ? <div className="h-96 animate-pulse rounded-2xl border bg-surface-muted" /> : !project ? <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><h1 className="text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href="/projects">Return to projects</Link></div></div> : summary ? <ConfiguredVillaProfile database={database} onCollectionSaved={(message) => { setFeedback(message); void getClientRepository().getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} onInterestSaved={() => { setFeedback("Successfully updated interest terms."); void getClientRepository().getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} onScheduleSaved={() => { setFeedback("Successfully updated payment schedule."); void getClientRepository().getDatabase().then(setDatabase).catch((reason: unknown) => setError(errorMessage(reason, "Unable to refresh villa."))); }} projectId={projectId} projectName={project.name} summary={summary} /> : placeholderNumber ? <EmptyVillaProfile number={placeholderNumber} projectId={projectId} projectName={project.name} /> : <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><FileText aria-hidden="true" className="mx-auto size-8 text-accent" /><h1 className="mt-4 text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href={`/projects/${projectId}`}>Return to villas</Link></div></div>}</div></AppShell>;
+  return <AppShell active="Projects & Villas"><div className="max-w-none">{feedback && <div className="fixed right-4 top-4 z-40 flex w-[calc(100%-2rem)] max-w-xl items-center justify-between gap-3 rounded-lg border border-success bg-success px-4 py-4 text-sm font-medium text-primary-foreground shadow-lg" role="status"><span className="flex items-center gap-3"><Info className="size-5" />{feedback}</span><button aria-label="Dismiss success message" className="rounded-md p-1 hover:bg-primary-foreground/15" onClick={() => setFeedback("")}><X className="size-4" /></button></div>}{searchParams.get("created") === "1" && <div className="mb-6 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-semibold text-success" role="status"><CheckCircle2 className="size-5" />Villa profile created successfully.</div>}{!project ? <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><h1 className="text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href="/projects">Return to projects</Link></div></div> : summary ? <ConfiguredVillaProfile database={database} onCollectionSaved={(message) => { setFeedback(message); router.refresh(); }} onInterestSaved={() => { setFeedback("Successfully updated interest terms."); router.refresh(); }} onScheduleSaved={() => { setFeedback("Successfully updated payment schedule."); router.refresh(); }} projectId={projectId} projectName={project.name} summary={summary} /> : placeholderNumber ? <EmptyVillaProfile number={placeholderNumber} projectId={projectId} projectName={project.name} /> : <div className="grid min-h-96 place-items-center rounded-xl border bg-surface"><div className="text-center"><FileText aria-hidden="true" className="mx-auto size-8 text-accent" /><h1 className="mt-4 text-xl font-semibold">Villa not found</h1><Link className="mt-3 inline-block text-sm font-semibold text-primary underline" href={`/projects/${projectId}`}>Return to villas</Link></div></div>}</div></AppShell>;
 }

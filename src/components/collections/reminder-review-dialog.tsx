@@ -6,7 +6,6 @@ import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { DEMO_TODAY } from "@/lib/config/demo";
 import type { MockDatabase, ReminderApproval } from "@/lib/domain/types";
 import { calculateVillaFinancials, paymentStatus, principalOutstanding } from "@/lib/finance/calculations";
 import { formatLkr } from "@/lib/formatters";
@@ -30,7 +29,7 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
   const customer = database.customers.find((candidate) => candidate.id === approval.customerId);
   const schedules = useMemo(() => database.schedules.filter((schedule) => schedule.villaId === approval.villaId), [approval.villaId, database.schedules]);
   const terms = resolveInterestTerms(database.settings, villa);
-  const financials = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
+  const financials = calculateVillaFinancials(schedules, terms, database.today);
   const paymentDue = schedules.filter((schedule) => principalOutstanding(schedule) > 0).sort((left, right) => left.dueDate.localeCompare(right.dueDate))[0];
   const defaultTemplate = database.reminderTemplates.find((template) => template.id === approval.templateId && template.isActive) ?? database.reminderTemplates.find((template) => template.type === "overdue" && template.isActive);
   const totalPayable = financials.outstandingPrincipal + financials.interestOutstanding;
@@ -65,7 +64,7 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
 
   const stageLabel = paymentDue?.stage ?? "Payment";
   const villaName = villa.number.replace(/^[A-Z]+-/, "Villa ");
-  const isOverdue = paymentDue ? paymentStatus(paymentDue, DEMO_TODAY) === "overdue" : false;
+  const isOverdue = paymentDue ? paymentStatus(paymentDue, database.today) === "overdue" : false;
 
   return <Dialog onOpenChange={(open) => !open && onClose()} open>
     <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-5xl overflow-y-auto rounded-lg p-5 sm:w-[calc(100%-2rem)] sm:p-7" showClose={false}>

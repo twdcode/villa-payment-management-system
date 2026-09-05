@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_INTEREST_TERMS } from "@/lib/config/demo";
+import { DEFAULT_INTEREST_TERMS } from "@/lib/config/defaults";
 import { resolveInterestTerms, storedInterestTerms } from "@/lib/domain/interest-terms";
 import type { Villa } from "@/lib/domain/types";
 

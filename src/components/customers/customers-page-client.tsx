@@ -2,18 +2,17 @@
 
 import { Check, Home, Pencil, Plus, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { z } from "zod";
 
 import { RecordPaymentDialog } from "@/components/collections/record-payment-dialog";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { DEMO_TODAY } from "@/lib/config/demo";
 import type { Customer, MockDatabase, PaymentSchedule, Villa } from "@/lib/domain/types";
 import { formatLkr } from "@/lib/formatters";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
-import { getClientRepository } from "@/lib/repositories/client";
 import { createCustomerAction, updateCustomerAction, addCustomerNoteAction } from "@/lib/actions/customers";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { villasForCustomer } from "@/lib/domain/villa-status";
@@ -59,7 +58,7 @@ function CustomerCard({ customer, database }: { customer: Customer; database: Mo
 function financials(database: MockDatabase, villa: Villa) {
   const schedules = database.schedules.filter((schedule) => schedule.villaId === villa.id);
   const terms = resolveInterestTerms(database.settings, villa);
-  const money = calculateVillaFinancials(schedules, terms, DEMO_TODAY);
+  const money = calculateVillaFinancials(schedules, terms, database.today);
   return { value: villa.value, collected: money.principalCollected, outstanding: Math.max(0, villa.value - money.principalCollected), overdue: money.overduePrincipal };
 }
 
@@ -75,14 +74,12 @@ function PaymentScheduleProgress({ schedules }: { schedules: Array<PaymentSchedu
   return <section className="mt-6 rounded-lg border bg-surface p-5 sm:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Payment schedule progress</h2><span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-semibold text-muted-foreground">{schedules.length} {schedules.length === 1 ? "stage" : "stages"}</span></div>{schedules.length ? <ol className="mt-6 grid grid-cols-1 border-t sm:grid-cols-2 sm:gap-x-6 lg:grid-cols-3 2xl:grid-cols-4">{schedules.map((schedule, index) => { const completed = schedule.principalPaid >= schedule.principalAmount; const current = !completed && (schedule.status === "due" || schedule.status === "overdue"); const label = completed ? "Completed" : index === 0 ? "Current" : "Upcoming"; return <li className="relative flex min-w-0 gap-4 border-b py-5" key={schedule.id}><div className="relative flex w-10 shrink-0 justify-center"><span aria-hidden="true" className={`absolute bottom-[-1.25rem] top-10 w-px bg-border sm:hidden ${index === schedules.length - 1 ? "hidden" : ""}`} /><span className={`relative z-10 grid size-10 shrink-0 place-items-center rounded-full border ${completed ? "border-success bg-success text-white" : current ? "border-primary bg-primary text-white" : "bg-surface-muted text-muted-foreground"}`}>{completed ? <Check className="size-5" /> : <Home className="size-4" />}</span></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Stage {String(index + 1).padStart(2, "0")}</p><span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${completed ? "bg-success/10 text-success" : current ? "bg-primary text-primary-foreground" : "bg-surface-muted text-muted-foreground"}`}>{label}</span></div><p className="mt-2 break-words text-sm font-semibold leading-5">{schedule.stage}</p><p className="mt-1 text-sm text-muted-foreground">{formatDate(schedule.dueDate)}</p></div></li>; })}</ol> : <p className="mt-6 text-sm text-muted-foreground">No payment stages are available yet.</p>}</section>;
 }
 
-/** `initialData`: fetched server-side by the collections/customers page.tsx. See dashboard-page-client.tsx for why it stays optional. */
-export function CustomersPageClient({ customerId, initialData }: { customerId?: string; initialData?: MockDatabase }) {
-  const [database, setDatabase] = useState<MockDatabase | null>(initialData ?? null); const [createOpen, setCreateOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [collectionOpen, setCollectionOpen] = useState(false); const [tab, setTab] = useState<"overview" | "note">("overview"); const [toast, setToast] = useState<Toast>(null);
-  const refresh = async (message?: string) => { const next = await getClientRepository().getDatabase(); setDatabase(next); if (message) setToast({ message }); };
-  useEffect(() => { if (initialData) return; void getClientRepository().getDatabase().then(setDatabase); }, [initialData]);
-  const customer = database?.customers.find((candidate) => candidate.id === customerId) ?? null;
-  const customerVillas = useMemo(() => database && customer ? villasForCustomer(database.villas, customer.id) : [], [database, customer]);
-  if (!database) return <AppShell active="Customers"><p className="text-sm text-muted-foreground">Loading customers...</p></AppShell>;
+export function CustomersPageClient({ customerId, database }: { customerId?: string; database: MockDatabase }) {
+  const router = useRouter();
+  const [createOpen, setCreateOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [collectionOpen, setCollectionOpen] = useState(false); const [tab, setTab] = useState<"overview" | "note">("overview"); const [toast, setToast] = useState<Toast>(null);
+  const refresh = (message?: string) => { router.refresh(); if (message) setToast({ message }); };
+  const customer = database.customers.find((candidate) => candidate.id === customerId) ?? null;
+  const customerVillas = useMemo(() => customer ? villasForCustomer(database.villas, customer.id) : [], [database, customer]);
   if (customerId && !customer) return <AppShell active="Customers"><p className="text-sm text-muted-foreground">Customer not found.</p></AppShell>;
   if (!customer) return <AppShell active="Customers"><ToastAlert onClose={() => setToast(null)} toast={toast} /><div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-semibold">Customers</h1><p className="mt-2 text-muted-foreground">Understand every customer relationship at a glance.</p></div><Button onClick={() => setCreateOpen(true)} variant="outline">New customer <Plus className="size-4" /></Button></div><div className="mt-8 grid gap-4 xl:grid-cols-2">{database.customers.map((candidate) => <CustomerCard customer={candidate} database={database} key={candidate.id} />)}</div><CustomerFormDialog key={`create-${createOpen}`} onOpenChange={setCreateOpen} onSaved={() => void refresh("Customer created successfully.")} open={createOpen} /></AppShell>;
   const totals = customerVillas.reduce((sum, villa) => { const current = financials(database, villa); return { value: sum.value + current.value, collected: sum.collected + current.collected, outstanding: sum.outstanding + current.outstanding, overdue: sum.overdue + current.overdue }; }, { value: 0, collected: 0, outstanding: 0, overdue: 0 });

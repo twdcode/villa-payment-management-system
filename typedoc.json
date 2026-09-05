@@ -1,0 +1,11 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/lib/repositories/contracts.ts", "src/lib/domain/types.ts"],
+  "out": ".typedoc",
+  "name": "Juniper Villa Management — Repository API",
+  "readme": "none",
+  "excludeExternals": true,
+  "excludePrivate": true,
+  "categorizeByGroup": true,
+  "githubPages": false
+}
