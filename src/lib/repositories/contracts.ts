@@ -6,7 +6,16 @@ export type ProjectUpdate = Partial<ProjectInput>;
 export type CustomerInput = Pick<Customer, "fullName" | "email" | "phone" | "nicPassport" | "address">;
 export type CustomerUpdate = Partial<CustomerInput>;
 export type UserInput = Pick<User, "name" | "email" | "role"> & { temporaryPassword: string };
-export type UserUpdate = Pick<User, "name" | "email" | "role"> & { temporaryPassword?: string };
+/**
+ * No `temporaryPassword`: an admin cannot set someone else's credential.
+ *
+ * The field used to be declared here and collected by the UI, but `updateUser` never wrote
+ * it — the form reported success while the password was silently discarded, leaving users
+ * locked out. Rather than implement admin-set passwords, the capability is removed: a user
+ * who is locked out uses "Forgot password" and the reset link goes to their own inbox, so
+ * no one else ever handles their password and `audit_log` cannot misattribute their actions.
+ */
+export type UserUpdate = Pick<User, "name" | "email" | "role">;
 
 export type PaymentScheduleInput = Pick<PaymentSchedule, "stage" | "deliverables" | "dueDate" | "gracePeriodDays" | "principalAmount">;
 export type PaymentScheduleUpdateInput = PaymentScheduleInput & { id?: string };
@@ -104,6 +113,14 @@ export interface Repository {
   completePasswordReset(newPassword: string): Promise<void>;
 
   getCurrentUser(): Promise<User>;
+  /**
+   * Every user with their email, role and status — the Settings access table.
+   *
+   * Deliberately NOT part of `getDatabase()`. That payload is serialised into the HTML of
+   * whichever page requested it, so putting the staff directory there published it to every
+   * signed-in user of every role. Callers must hold `manage_users`.
+   */
+  listUsersForAccessControl(): Promise<User[]>;
   createUser(input: UserInput): Promise<User>;
   updateUser(id: string, input: UserUpdate): Promise<User>;
   setUserActive(id: string, isActive: boolean): Promise<User>;

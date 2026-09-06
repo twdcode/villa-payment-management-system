@@ -7,6 +7,18 @@ import { getRepository } from "@/lib/repositories";
 import type { User } from "@/lib/domain/types";
 import type { UserInput, UserUpdate } from "@/lib/repositories/contracts";
 
+/**
+ * The staff directory for the Settings access table.
+ *
+ * Fetched through its own guarded action rather than riding along in `getDatabase()`:
+ * that payload is serialised into the page HTML, so carrying emails, roles and account
+ * status there exposed them to every signed-in user regardless of role.
+ */
+export async function listUsersAction(): Promise<User[]> {
+  await requirePermission("manage_users");
+  return (await getRepository()).listUsersForAccessControl();
+}
+
 /** Only `super_admin` holds `manage_users` — see `lib/permissions/roles.ts`. */
 export async function createUserAction(input: UserInput): Promise<User> {
   await requirePermission("manage_users");

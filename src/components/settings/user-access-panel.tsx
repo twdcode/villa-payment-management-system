@@ -1,7 +1,7 @@
 "use client";
 
-import { AlertTriangle, Eye, EyeOff, Pencil, Plus, Trash2, UserRoundPlus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, Eye, EyeOff, Pencil, Plus, ShieldCheck, Trash2, UserRoundPlus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import type { MockDatabase, User, UserRole } from "@/lib/domain/types";
+import type { User, UserRole } from "@/lib/domain/types";
 import { roleLabels } from "@/lib/permissions/roles";
-import { createUserAction, updateUserAction, deleteUserAction, setUserActiveAction } from "@/lib/actions/users";
+import { createUserAction, updateUserAction, deleteUserAction, listUsersAction, setUserActiveAction } from "@/lib/actions/users";
 import { errorMessage } from "@/lib/errors";
 import { useCurrentUser } from "@/components/auth/current-user-provider";
 
@@ -48,7 +48,9 @@ function UserFormDialog({ user, onClose, onSaved }: { user: User | null; onClose
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const parsed = useMemo(() => userAccessSchema.safeParse(form), [form]);
-  const passwordIsValid = isEditing ? form.temporaryPassword.length === 0 || form.temporaryPassword.length >= 8 : form.temporaryPassword.length >= 8;
+  // Only account creation sets a password. Editing an existing user cannot change their
+  // credential — that happens through the reset link they request themselves.
+  const passwordIsValid = isEditing || form.temporaryPassword.length >= 8;
   const canSubmit = parsed.success && passwordIsValid;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -59,10 +61,6 @@ function UserFormDialog({ user, onClose, onSaved }: { user: User | null; onClose
       return;
     }
     if (!isEditing && result.data.temporaryPassword.length < 8) {
-      setError("Temporary password must contain at least 8 characters.");
-      return;
-    }
-    if (isEditing && result.data.temporaryPassword.length > 0 && result.data.temporaryPassword.length < 8) {
       setError("Temporary password must contain at least 8 characters.");
       return;
     }
@@ -87,7 +85,7 @@ function UserFormDialog({ user, onClose, onSaved }: { user: User | null; onClose
         <div>
           <DialogTitle className="text-2xl font-medium">{isEditing ? "Edit user access" : "Add user access"}</DialogTitle>
           <DialogDescription className="mt-2 text-sm text-muted-foreground">
-            {isEditing ? "Update the account profile, role, or temporary password." : "Create an account with email, temporary password and role."}
+            {isEditing ? "Update this person's name, email address or role." : "Create an account with email, temporary password and role."}
           </DialogDescription>
         </div>
         <form onSubmit={submit}>
@@ -96,7 +94,9 @@ function UserFormDialog({ user, onClose, onSaved }: { user: User | null; onClose
             <label className="text-sm font-semibold text-muted-foreground">Email address<Input autoComplete="email" className="mt-2" onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="name@company.lk" type="email" value={form.email} /></label>
           </div>
           <label className="mt-5 block text-sm font-semibold text-muted-foreground">Role<Select onValueChange={(next) => setForm({ ...form, role: next as UserRole })} value={form.role}><SelectTrigger className="mt-2 h-11"><SelectValue /></SelectTrigger><SelectContent>{roleValues.map((role) => <SelectItem key={role} value={role}>{roleLabels[role]}</SelectItem>)}</SelectContent></Select></label>
-          <label className="mt-5 block text-sm font-semibold text-muted-foreground">{isEditing ? "New temporary password (optional)" : "Temporary password"}<span className="relative mt-2 block"><Input autoComplete="new-password" className="pr-12" onChange={(event) => setForm({ ...form, temporaryPassword: event.target.value })} placeholder={isEditing ? "Leave blank to keep the current password" : "Minimum 8 characters"} type={showPassword ? "text" : "password"} value={form.temporaryPassword} /><Tooltip><TooltipTrigger asChild><button aria-label={showPassword ? "Hide temporary password" : "Show temporary password"} className="absolute right-1 top-1 grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground" onClick={() => setShowPassword((visible) => !visible)} type="button">{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></TooltipTrigger><TooltipContent>{showPassword ? "Hide password" : "Show password"}</TooltipContent></Tooltip></span></label>
+          {isEditing
+            ? <p className="mt-5 flex items-start gap-2 rounded-md bg-surface-subtle px-3 py-3 text-xs text-muted-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-success" />Passwords cannot be set from here. If this person is locked out, ask them to use &ldquo;Forgot password&rdquo; on the sign-in page — the reset link goes to their inbox, so no one else ever handles their password.</p>
+            : <label className="mt-5 block text-sm font-semibold text-muted-foreground">Temporary password<span className="relative mt-2 block"><Input autoComplete="new-password" className="pr-12" onChange={(event) => setForm({ ...form, temporaryPassword: event.target.value })} placeholder="Minimum 8 characters" type={showPassword ? "text" : "password"} value={form.temporaryPassword} /><Tooltip><TooltipTrigger asChild><button aria-label={showPassword ? "Hide temporary password" : "Show temporary password"} className="absolute right-1 top-1 grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground" onClick={() => setShowPassword((visible) => !visible)} type="button">{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></TooltipTrigger><TooltipContent>{showPassword ? "Hide password" : "Show password"}</TooltipContent></Tooltip></span></label>}
           <p className="mt-4 flex items-start gap-2 text-xs text-muted-foreground"><span className="mt-0.5 text-success">●</span>Passwords stay masked after saving. Share the temporary password securely with the user.</p>
           {error && <p className="mt-4 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p>}
           <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -135,20 +135,38 @@ function DeleteUserDialog({ user, onClose, onDeleted }: { user: User; onClose: (
   );
 }
 
-export function UserAccessPanel({ database, onSaved }: { database: MockDatabase; onSaved: (database: MockDatabase, message: string) => void }) {
+/**
+ * The staff directory is fetched here, through `listUsersAction`, rather than arriving in
+ * the page's `database` prop. That prop is serialised into the page HTML, so carrying
+ * emails, roles and account status in it published the whole directory to every signed-in
+ * user of every role. This action requires `manage_users`.
+ */
+export function UserAccessPanel({ onNotify }: { onNotify: (message: string) => void }) {
   const currentUser = useCurrentUser();
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editor, setEditor] = useState<{ mode: "create" } | { mode: "edit"; user: User } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
-  const activeUsers = database.users.filter((user) => user.isActive);
+  const activeUsers = users.filter((user) => user.isActive);
   const superAdmins = activeUsers.filter((user) => user.role === "super_admin");
 
+  useEffect(() => {
+    let cancelled = false;
+    void listUsersAction()
+      .then((rows) => { if (!cancelled) setUsers(rows); })
+      .catch((reason) => { if (!cancelled) setError(errorMessage(reason, "Unable to load users.")); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
   function saveUser(user: User, message: string) {
-    const exists = database.users.some((candidate) => candidate.id === user.id);
-    const users = exists ? database.users.map((candidate) => candidate.id === user.id ? user : candidate) : [...database.users, user];
+    setUsers((current) => current.some((candidate) => candidate.id === user.id)
+      ? current.map((candidate) => candidate.id === user.id ? user : candidate)
+      : [...current, user]);
     setEditor(null);
-    onSaved({ ...database, users }, message);
+    onNotify(message);
   }
 
   async function changeStatus(user: User) {
@@ -156,7 +174,8 @@ export function UserAccessPanel({ database, onSaved }: { database: MockDatabase;
     setError("");
     try {
       const updated = await setUserActiveAction(user.id, !user.isActive);
-      onSaved({ ...database, users: database.users.map((candidate) => candidate.id === user.id ? updated : candidate) }, updated.isActive ? "User enabled successfully." : "User disabled successfully.");
+      setUsers((current) => current.map((candidate) => candidate.id === user.id ? updated : candidate));
+      onNotify(updated.isActive ? "User enabled successfully." : "User disabled successfully.");
     } catch (reason) {
       setError(errorMessage(reason, "Unable to change user access."));
     } finally {
@@ -168,10 +187,11 @@ export function UserAccessPanel({ database, onSaved }: { database: MockDatabase;
     <TooltipProvider delayDuration={250}>
       <section className="min-w-0 rounded-lg border bg-surface p-5 sm:p-7">
         <PanelHeading onAdd={() => setEditor({ mode: "create" })} />
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">{[[activeUsers.length, "Active users"], [superAdmins.length, "Super admins"], [database.users.length - activeUsers.length, "Disabled"]].map(([value, label]) => <div className="rounded-md bg-surface-muted p-4" key={String(label)}><p className="text-2xl font-semibold">{value}</p><p className="mt-2 text-xs text-muted-foreground">{label}</p></div>)}</div>
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">{[[activeUsers.length, "Active users"], [superAdmins.length, "Super admins"], [users.length - activeUsers.length, "Disabled"]].map(([value, label]) => <div className="rounded-md bg-surface-muted p-4" key={String(label)}><p className="text-2xl font-semibold">{value}</p><p className="mt-2 text-xs text-muted-foreground">{label}</p></div>)}</div>
         {error && <p className="mt-5 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p>}
+        {loading && <p className="mt-5 text-sm text-muted-foreground">Loading users...</p>}
         <div className="mt-5 divide-y">
-          {database.users.map((user) => {
+          {users.map((user) => {
             const isCurrentUser = user.id === currentUser?.id;
             return <div className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center" key={user.id}>
               <div className={`flex min-w-0 flex-1 items-center gap-3 ${user.isActive ? "" : "opacity-45"}`}><span className="grid size-12 shrink-0 place-items-center rounded-md bg-surface-muted text-sm font-bold">{initials(user.name)}</span><div className="min-w-0"><p className="truncate font-semibold">{user.name}{isCurrentUser && <span className="ml-2 rounded-full bg-surface-muted px-2 py-1 text-xs">You</span>}</p><p className="mt-1 truncate text-sm text-muted-foreground">{user.email}</p></div></div>
@@ -187,7 +207,7 @@ export function UserAccessPanel({ database, onSaved }: { database: MockDatabase;
         </div>
       </section>
       {editor && <UserFormDialog key={editor.mode === "edit" ? editor.user.id : "new-user"} onClose={() => setEditor(null)} onSaved={saveUser} user={editor.mode === "edit" ? editor.user : null} />}
-      {deleteTarget && <DeleteUserDialog onClose={() => setDeleteTarget(null)} onDeleted={(id) => { setDeleteTarget(null); onSaved({ ...database, users: database.users.filter((user) => user.id !== id) }, "User deleted successfully."); }} user={deleteTarget} />}
+      {deleteTarget && <DeleteUserDialog onClose={() => setDeleteTarget(null)} onDeleted={(id) => { setDeleteTarget(null); setUsers((current) => current.filter((user) => user.id !== id)); onNotify("User deleted successfully."); }} user={deleteTarget} />}
     </TooltipProvider>
   );
 }

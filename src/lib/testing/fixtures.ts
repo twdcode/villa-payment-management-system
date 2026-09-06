@@ -99,10 +99,11 @@ const receipts: Receipt[] = [
 
 export const seedDatabase: MockDatabase = {
   today: FIXTURE_TODAY,
+  // Attribution only — `MockDatabase.users` carries no email/role/status. See UserDirectoryEntry.
   users: [
-    { id: "user-vishal", name: "Vishal Silva", email: "vishal@juniper.lk", role: "super_admin", isActive: true },
-    { id: "user-niro", name: "Niro Perera", email: "niro@juniper.lk", role: "editor", isActive: true },
-    { id: "user-ima", name: "Ima Fernando", email: "ima@juniper.lk", role: "view_only", isActive: true },
+    { id: "user-vishal", name: "Vishal Silva" },
+    { id: "user-niro", name: "Niro Perera" },
+    { id: "user-ima", name: "Ima Fernando" },
   ],
   projects: [
     { id: "project-ocean", name: "Ocean Crest Residences", location: "Talpe, Galle", status: "active", createdAt: "2025-04-12" },

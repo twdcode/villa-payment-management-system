@@ -50,8 +50,11 @@ const sectionItems: Array<{ id: Section; label: string; description: string; ico
 function SettingsNavigation({ active, onChange }: { active: Section; onChange: (section: Section) => void }) {
   return <aside className="min-w-0 max-w-full overflow-hidden rounded-lg border bg-surface p-4 min-[1360px]:sticky min-[1360px]:top-6 min-[1360px]:self-start">
     <div className="flex items-center gap-3 border-b px-2 pb-4"><span className="grid size-11 place-items-center rounded-md bg-surface-muted"><Settings2 className="size-5" /></span><div><p className="font-semibold">Workspace settings</p><p className="mt-1 text-xs text-muted-foreground">Super Admin controls</p></div></div>
-    <nav aria-label="Settings sections" className="mt-3 flex w-full max-w-full gap-2 overflow-x-auto pb-1 min-[1360px]:block min-[1360px]:space-y-1 min-[1360px]:overflow-visible">
-      {sectionItems.map((item) => { const Icon = item.icon; return <button aria-current={active === item.id ? "page" : undefined} className={`flex min-w-56 items-center gap-3 rounded-md px-3 py-3 text-left transition-colors min-[1360px]:w-full ${active === item.id ? "bg-surface-muted" : "hover:bg-surface-subtle"}`} key={item.id} onClick={() => onChange(item.id)} type="button"><Icon className="size-5 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{item.label}</span><span className="mt-1 block text-xs text-muted-foreground">{item.description}</span></span><ChevronRight className="size-4 shrink-0 text-muted-foreground" /></button>; })}
+    {/* A grid that reflows, not a horizontal scroller. Fixed-width items (min-w-56) forced
+        a sideways scrollbar on every screen under 1360px, which hid half the sections
+        behind a gesture nobody expects on a settings page. */}
+    <nav aria-label="Settings sections" className="mt-3 grid w-full gap-2 sm:grid-cols-2 min-[1360px]:grid-cols-1">
+      {sectionItems.map((item) => { const Icon = item.icon; return <button aria-current={active === item.id ? "page" : undefined} className={`flex w-full min-w-0 items-center gap-3 rounded-md px-3 py-3 text-left transition-colors ${active === item.id ? "bg-surface-muted" : "hover:bg-surface-subtle"}`} key={item.id} onClick={() => onChange(item.id)} type="button"><Icon className="size-5 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{item.label}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{item.description}</span></span><ChevronRight className="size-4 shrink-0 text-muted-foreground" /></button>; })}
     </nav>
   </aside>;
 }
@@ -147,7 +150,7 @@ function WorkspaceSettingsPageBody({ database: initialDatabase }: { database: Mo
   const panel = useMemo(() => {
     const onSaved = (nextDatabase: MockDatabase, message: string) => { setDatabase(nextDatabase); toast(message); };
     if (section === "application") return <ApplicationPanel database={database} onSaved={onSaved} />;
-    if (section === "users") return <UserAccessPanel database={database} onSaved={onSaved} />;
+    if (section === "users") return <UserAccessPanel onNotify={toast} />;
     if (section === "templates") return <ReminderTemplatesPanel database={database} onSaved={onSaved} />;
     if (section === "grace") return <GracePeriodsPanel database={database} onSaved={onSaved} />;
     if (section === "interest") return <InterestPanel database={database} onSaved={onSaved} />;

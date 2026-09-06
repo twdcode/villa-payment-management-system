@@ -20,6 +20,22 @@ export type User = {
   isActive: boolean;
 };
 
+/**
+ * A user as far as the rest of the workspace is concerned: an id and a display name.
+ *
+ * Every page outside Settings only ever needs to turn an author id into a name — "Added by
+ * Dilshan", the initials on a note. None of them need an email, a role, or whether an
+ * account is disabled, so none of that is carried in `MockDatabase.users`.
+ *
+ * This is deliberate. Props passed from a Server Component to a Client Component are
+ * serialised into the page's HTML, so anything on this object is readable by anyone who can
+ * open the page — regardless of what the UI chooses to render. Shipping the full `User`
+ * here published the entire staff directory (names, emails, roles, active status) to every
+ * signed-in user of every role. The full record is available only through
+ * `listUsersForAccessControl()`, which requires `manage_users`.
+ */
+export type UserDirectoryEntry = Pick<User, "id" | "name">;
+
 export type InterestTerms = {
   monthlyRate: number;
   gracePeriodDays: number;
@@ -64,6 +80,16 @@ export type Customer = {
   address?: string;
   createdAt: DateString;
 };
+
+/**
+ * A customer as the rest of the workspace needs them: enough to label a villa or a payment.
+ *
+ * Identity documents and home addresses are not needed to render a collections row or a
+ * villa card, so they are not carried in `MockDatabase.customers` — that object is
+ * serialised into the HTML of every page that requests it. The Customers page, which does
+ * edit these fields, loads full records through `listCustomersAction`.
+ */
+export type CustomerSummary = Omit<Customer, "nicPassport" | "address">;
 
 export type PaymentSchedule = {
   id: string;
@@ -248,10 +274,12 @@ export type MockDatabase = {
    * Postgres always agree on what day it is.
    */
   today: string;
-  users: User[];
+  /** Attribution only — see `UserDirectoryEntry`. The full staff list is Settings-only. */
+  users: UserDirectoryEntry[];
   projects: Project[];
   villas: Villa[];
-  customers: Customer[];
+  /** Identity documents and addresses are excluded — see `CustomerSummary`. */
+  customers: CustomerSummary[];
   schedules: PaymentSchedule[];
   collections: Collection[];
   receipts: Receipt[];

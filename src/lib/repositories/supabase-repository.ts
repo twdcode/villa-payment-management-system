@@ -45,12 +45,23 @@ function validateDocumentLinkInput(input: DocumentLinkInput) {
   validateDocumentUrl(input.url);
 }
 
+/**
+ * A real `YYYY-MM-DD` calendar date.
+ *
+ * Both halves matter: the shape check rejects an empty string, and the round-trip rejects
+ * a well-shaped impossible date (`2026-02-31`) and the garbled values a native date input
+ * can produce when typed into quickly (`90120-02-06`).
+ */
+function isValidDateString(value: string | undefined | null): boolean {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function validateUserInput(input: UserInput | UserUpdate) {
   if (input.name.trim().length < 2) throw new Error("Full name must contain at least two characters.");
   if (!/^\S+@\S+\.\S+$/.test(input.email.trim())) throw new Error("Enter a valid email address.");
-  if (input.temporaryPassword !== undefined && input.temporaryPassword.length > 0 && input.temporaryPassword.length < 8) {
-    throw new Error("Temporary password must contain at least 8 characters.");
-  }
+  // The password length rule lives in `createUser`: only account creation sets one.
 }
 
 function validateReminderTemplateInput(input: ReminderTemplateInput) {
@@ -193,7 +204,9 @@ async function assembleDatabase(): Promise<MockDatabase> {
     activityEventRows,
   ] = await Promise.all([
     getWorkspaceToday(),
-    db.select().from(schema.users),
+    // Only what attribution needs. Selecting the whole row here put every colleague's
+    // email, role and account status into the HTML of every page — see `UserDirectoryEntry`.
+    db.select({ id: schema.users.id, name: schema.users.fullName }).from(schema.users),
     db.select().from(schema.projects).where(isNull(schema.projects.deletedAt)),
     db
       .select({ villa: schema.villas, customerLink: schema.villaCustomers, terms: schema.villaInterestTerms })
@@ -227,10 +240,11 @@ async function assembleDatabase(): Promise<MockDatabase> {
 
   const database: MockDatabase = {
     today,
-    users: userRows.map(toUser),
+    users: userRows,
     projects: projectRows.map(toProject),
     villas,
-    customers: customerRows.map(toCustomer),
+    // PII stripped: see `CustomerSummary`. Full records come from `getCustomers()`.
+    customers: customerRows.map(toCustomer).map(({ nicPassport: _nic, address: _address, ...summary }) => summary),
     schedules,
     collections,
     receipts,
@@ -440,6 +454,11 @@ export class SupabaseRepository implements Repository {
     const user = await getSessionUser();
     if (!user) throw new Error("Not signed in.");
     return user;
+  }
+
+  async listUsersForAccessControl(): Promise<User[]> {
+    const rows = await db.select().from(schema.users);
+    return rows.map(toUser);
   }
 
   async createUser(input: UserInput): Promise<User> {
@@ -852,6 +871,11 @@ export class SupabaseRepository implements Repository {
     if (schedules.some((schedule) => !schedule.stage.trim() || schedule.principalAmount < 0 || schedule.gracePeriodDays < 0)) {
       throw new Error("Each stage needs a name, non-negative amount, and valid grace period.");
     }
+    // Checked here, not left to Postgres: an empty or malformed date reached the insert and
+    // came back as a raw "Failed query: insert into payment_stages ..." on the user's screen.
+    if (schedules.some((schedule) => !isValidDateString(schedule.dueDate))) {
+      throw new Error("Each stage needs a valid due date.");
+    }
     const total = schedules.reduce((sum, schedule) => sum + schedule.principalAmount, 0);
     const today = await getWorkspaceToday();
     const currentUser = await this.getCurrentUser();
@@ -859,6 +883,9 @@ export class SupabaseRepository implements Repository {
     return db.transaction(async (tx) => {
       const [villa] = await tx.select().from(schema.villas).where(and(eq(schema.villas.id, villaId), isNull(schema.villas.deletedAt)));
       if (!villa) throw new Error("Villa not found.");
+      // Cancelling a programme promises it "stops schedule changes" — enforce that here,
+      // not only by disabling the button. Same guard as `updateVilla`.
+      if (villa.programmeStatus === "cancelled") throw new Error("This villa programme is cancelled and its payment schedule cannot be changed.");
       if (total > Number(villa.villaValue)) throw new Error("Payment schedule total cannot exceed the villa value.");
 
       const existing = await tx.select().from(schema.paymentStages).where(eq(schema.paymentStages.villaId, villaId));
@@ -924,6 +951,7 @@ export class SupabaseRepository implements Repository {
     return db.transaction(async (tx) => {
       const [villa] = await tx.select().from(schema.villas).where(and(eq(schema.villas.id, villaId), isNull(schema.villas.deletedAt)));
       if (!villa) throw new Error("Villa not found.");
+      if (villa.programmeStatus === "cancelled") throw new Error("This villa programme is cancelled and its interest terms cannot be changed.");
 
       const values = {
         chargeInterest: input.chargeLatePaymentInterest,

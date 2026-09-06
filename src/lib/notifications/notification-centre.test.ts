@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { User } from "@/lib/domain/types";
 import { seedDatabase } from "@/lib/testing/fixtures";
 import { createPaymentRecordedNotification, notificationsForUser, syncNotifications } from "@/lib/notifications/notification-centre";
 
@@ -54,9 +55,11 @@ describe("notification centre", () => {
   it("delivers notifications only to active Super Admin and Editor users", () => {
     const database = databaseWithOneSchedule();
     const notifications = syncNotifications(database, "2026-08-28");
-    const superAdmin = database.users.find((user) => user.role === "super_admin")!;
-    const editor = database.users.find((user) => user.role === "editor")!;
-    const viewer = database.users.find((user) => user.role === "view_only")!;
+    // Built here rather than read from `database.users`: that list is attribution only
+    // (id + name), and `notificationsForUser` needs the signed-in user's real role.
+    const superAdmin: User = { id: "user-vishal", name: "Vishal Silva", email: "vishal@juniper.lk", role: "super_admin", isActive: true };
+    const editor: User = { id: "user-niro", name: "Niro Perera", email: "niro@juniper.lk", role: "editor", isActive: true };
+    const viewer: User = { id: "user-ima", name: "Ima Fernando", email: "ima@juniper.lk", role: "view_only", isActive: true };
 
     expect(notificationsForUser(notifications, superAdmin, "2026-08-28")).toHaveLength(1);
     expect(notificationsForUser(notifications, editor, "2026-08-28")).toHaveLength(1);
