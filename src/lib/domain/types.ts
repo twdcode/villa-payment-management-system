@@ -265,6 +265,26 @@ export type WorkspaceSettings = {
   projectPaymentScheduleDefaults: ProjectPaymentScheduleDefault[];
 };
 
+/**
+ * A customer overpayment, and how much of it is still unspent.
+ *
+ * `amountBanked` is what the original payment left over and never changes —
+ * `v_ledger_reconciliation` asserts that every collection's allocations plus its banked
+ * credit equal the amount received, so reducing it on drawdown would raise a false
+ * "money is unaccounted for" alarm. Drawdowns are separate rows; `amountRemaining` is
+ * derived.
+ */
+export type AdvanceCredit = {
+  id: string;
+  villaId: string;
+  collectionId: string;
+  amountBanked: number;
+  amountApplied: number;
+  amountRemaining: number;
+  status: "available" | "partially_applied" | "applied";
+  createdAt: DateString;
+};
+
 export type MockDatabase = {
   /**
    * The workspace's current date, `YYYY-MM-DD`. Every overdue/due-soon/interest
@@ -283,6 +303,7 @@ export type MockDatabase = {
   schedules: PaymentSchedule[];
   collections: Collection[];
   receipts: Receipt[];
+  advanceCredits: AdvanceCredit[];
   notes: Note[];
   documents: DocumentLink[];
   reminderTemplates: ReminderTemplate[];

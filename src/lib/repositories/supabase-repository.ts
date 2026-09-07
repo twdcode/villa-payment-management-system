@@ -12,7 +12,7 @@ import { createPaymentRecordedNotification, notificationsForUser, syncNotificati
 import { sendReminderEmail } from "@/lib/reminders/send";
 import { paymentStatus } from "@/lib/finance/calculations";
 import { reminderTemplateTypeLabels } from "@/lib/domain/status-labels";
-import type { Collection, CollectionAllocation, Customer, MockDatabase, PaymentSchedule, Project, ReminderApproval, ReminderLog, ReminderTemplate, User, Villa, WorkspaceNotification, WorkspaceSettings } from "@/lib/domain/types";
+import type { AdvanceCredit, Collection, CollectionAllocation, Customer, MockDatabase, PaymentSchedule, Project, ReminderApproval, ReminderLog, ReminderTemplate, User, Villa, WorkspaceNotification, WorkspaceSettings } from "@/lib/domain/types";
 import { NotImplementedError } from "@/lib/repositories/errors";
 
 import type { Repository, ApplicationSettingsInput, CollectionInput, CollectionQuery, CollectionResult, CollectionUpdateInput, CustomerInput, CustomerUpdate, DocumentLinkInput, DocumentLinkUpdate, GracePeriodInput, InterestDefaultsInput, PaymentScheduleDefaultsInput, PaymentScheduleUpdateInput, ProjectInput, ProjectUpdate, ReminderApprovalInput, ReminderApprovalReviewInput, ReminderTemplateInput, UserInput, UserUpdate, VillaDetailsUpdate, VillaInterestTermsInput, VillaQuery, VillaSetupInput, VillaSetupResult } from "./contracts";
@@ -199,6 +199,7 @@ async function assembleDatabase(): Promise<MockDatabase> {
     scheduleRows,
     collections,
     receiptRows,
+    creditRows,
     noteRows,
     documentRows,
     templateRows,
@@ -223,6 +224,9 @@ async function assembleDatabase(): Promise<MockDatabase> {
     fetchCollections({}),
     queryView<{ id: string; number: string; collectionId: string; issuedAt: string; principalAmount: string; interestAmount: string; totalAmount: string }>(
       sql`SELECT * FROM v_receipts`,
+    ),
+    queryView<{ id: string; villaId: string; collectionId: string; amountBanked: string; amountApplied: string; amountRemaining: string; status: AdvanceCredit["status"]; createdAt: string }>(
+      sql`SELECT * FROM v_advance_credit_balance`,
     ),
     db.select().from(schema.notes).where(isNull(schema.notes.deletedAt)),
     db.select().from(schema.documents).where(isNull(schema.documents.deletedAt)),
@@ -252,6 +256,16 @@ async function assembleDatabase(): Promise<MockDatabase> {
     schedules,
     collections,
     receipts,
+    advanceCredits: creditRows.map((row) => ({
+      id: row.id,
+      villaId: row.villaId,
+      collectionId: row.collectionId,
+      amountBanked: Number(row.amountBanked),
+      amountApplied: Number(row.amountApplied),
+      amountRemaining: Number(row.amountRemaining),
+      status: row.status,
+      createdAt: row.createdAt,
+    })),
     notes: noteRows.map(toNote),
     documents: documentRows.map(toDocumentLink),
     reminderTemplates: templateRows.map(toReminderTemplate),
@@ -884,7 +898,7 @@ export class SupabaseRepository implements Repository {
     const today = await getWorkspaceToday();
     const currentUser = await this.getCurrentUser();
 
-    return db.transaction(async (tx) => {
+    await db.transaction(async (tx) => {
       const [villa] = await tx.select().from(schema.villas).where(and(eq(schema.villas.id, villaId), isNull(schema.villas.deletedAt)));
       if (!villa) throw new Error("Villa not found.");
       // Cancelling a programme promises it "stops schedule changes" — enforce that here,
@@ -947,6 +961,13 @@ export class SupabaseRepository implements Repository {
       await writeAuditLog(tx, { tableName: "payment_stages", recordId: villaId, action: "update", before: existing, after: updated, actorId: currentUser.id });
       return updated;
     });
+
+    // After the commit, not inside it: `apply_advance_credits()` reads the stages back
+    // through `v_live_allocations`, so it needs rows this transaction has already written.
+    // A schedule edit can add a stage or bring one forward, either of which gives banked
+    // credit somewhere new to land.
+    await this.applyAdvanceCredits(villaId);
+    return this.getSchedules(villaId);
   }
 
   async updateVillaInterestTerms(villaId: string, input: VillaInterestTermsInput): Promise<Villa> {
@@ -1163,7 +1184,21 @@ export class SupabaseRepository implements Repository {
       ) AS collection_id
     `);
 
+    await this.applyAdvanceCredits(input.villaId);
     return this.collectionResult(row.collectionId, input.villaId);
+  }
+
+  /**
+   * Draw any available advance credit down against this villa's due, unpaid stages.
+   *
+   * Called wherever a new payment obligation can appear — a payment that banks credit, or
+   * a schedule edit that adds or re-dates a stage. `apply_advance_credits()` is idempotent
+   * and returns 0 when there is nothing to do, so calling it defensively is cheap and
+   * missing a call site is the only real failure mode.
+   */
+  private async applyAdvanceCredits(villaId: string): Promise<void> {
+    const currentUser = await this.getCurrentUser();
+    await queryView(sql`SELECT public.apply_advance_credits(${villaId}::uuid, NULL, ${currentUser.id}::uuid)`);
   }
 
   /** C1/E10 — correct a collection by superseding it. Interest re-derives from the corrected values. */
@@ -1180,6 +1215,7 @@ export class SupabaseRepository implements Repository {
       ) AS collection_id
     `);
 
+    await this.applyAdvanceCredits(input.villaId);
     return this.collectionResult(row.collectionId, input.villaId);
   }
 

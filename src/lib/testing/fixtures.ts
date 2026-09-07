@@ -180,6 +180,7 @@ export const seedDatabase: MockDatabase = {
     collection("collection-010", "receipt-009", "project-serenity", "villa-sb-02", "customer-isha", "2025-08-01", 34_000_000, 0, "confirmed", "schedule-sb-02a"),
   ],
   receipts,
+  advanceCredits: [],
   notes: [
     { id: "note-001", category: "villa", villaId: "villa-oc-02", content: "Customer requested a revised collection forecast after the August reminder.", authorId: "user-niro", createdAt: "2026-08-24T09:30:00.000Z" },
     { id: "note-002", category: "customer", customerId: "customer-maya", content: "Partial payment confirmed against the reservation stage.", authorId: "user-vishal", createdAt: "2026-08-09T10:15:00.000Z" },
