@@ -80,9 +80,18 @@ export type CollectionInput = {
 /** C1 — a correction supersedes the original; there is no reversal. A reason is required. */
 export type CollectionUpdateInput = Omit<CollectionInput, "idempotencyKey">;
 
-export type ReminderApprovalInput = Pick<ReminderApproval, "customerId" | "villaId" | "sendDate" | "templateId" | "subject" | "message" | "attachmentName" | "attachmentUrl">;
-export type ReminderApprovalReviewInput = Pick<ReminderApproval, "sendDate" | "subject" | "message" | "attachmentName" | "attachmentUrl"> & { action: "draft" | "send" };
-export type ReminderTemplateInput = Pick<ReminderTemplate, "name" | "subject" | "message">;
+/**
+ * No `attachmentName`: reminders carry a *link*, never an upload.
+ *
+ * Storing customer invoices in Supabase Storage would consume the free tier's quota for
+ * files the business already keeps elsewhere, so the workspace records a URL to the
+ * hosted document instead. The link is optional — a reminder is a chase-up email, and
+ * requiring an attachment blocked the approval queue whenever there was nothing to
+ * attach.
+ */
+export type ReminderApprovalInput = Pick<ReminderApproval, "customerId" | "villaId" | "sendDate" | "templateId" | "subject" | "message" | "attachmentUrl">;
+export type ReminderApprovalReviewInput = Pick<ReminderApproval, "sendDate" | "subject" | "message" | "attachmentUrl"> & { action: "draft" | "send" };
+export type ReminderTemplateInput = Pick<ReminderTemplate, "name" | "subject" | "message" | "type">;
 export type ApplicationSettingsInput = Pick<WorkspaceSettings, "companyName" | "dateFormat" | "replyToEmail">;
 export type InterestDefaultsInput = Pick<WorkspaceSettings, "defaultChargeLatePaymentInterest" | "defaultInterestTerms">;
 export type PaymentScheduleDefaultsInput = { projectId: string; stages: PaymentScheduleDefaultStage[] };

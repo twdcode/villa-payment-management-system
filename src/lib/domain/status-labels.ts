@@ -1,4 +1,4 @@
-import type { CollectionStatus, PaymentStatus, ProjectStatus, VillaOperationalStatus } from "@/lib/domain/types";
+import type { CollectionStatus, PaymentStatus, ProjectStatus, ReminderTemplate, VillaOperationalStatus } from "@/lib/domain/types";
 
 export const projectStatusLabels: Record<ProjectStatus, string> = { active: "Active", completed: "Completed" };
 export const villaStatusLabels: Record<VillaOperationalStatus, string> = {
@@ -16,3 +16,10 @@ export const paymentStatusLabels: Record<PaymentStatus, string> = {
   partially_paid: "Partially paid",
 };
 export const collectionStatusLabels: Record<CollectionStatus, string> = { confirmed: "Confirmed", superseded: "Superseded" };
+export const reminderTemplateTypeLabels: Record<ReminderTemplate["type"], string> = {
+  upcoming: "Upcoming payment",
+  overdue: "Payment overdue",
+  payment_received: "Payment received",
+  final_notice: "Final notice",
+  custom: "Custom",
+};

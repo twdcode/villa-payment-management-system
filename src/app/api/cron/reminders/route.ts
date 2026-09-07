@@ -6,7 +6,7 @@ import * as schema from "@/lib/db/schema";
 import { sendReminderEmail } from "@/lib/reminders/send";
 
 /**
- * Vercel Cron, `02:30 UTC` = `08:00 Asia/Colombo` (see vercel.json). Guarded by
+ * Vercel Cron, `08:30 UTC` = `14:00 Asia/Colombo` (see vercel.json). Guarded by
  * `CRON_SECRET` — this is a public URL, and Vercel Cron's own IP is not something to
  * trust as authentication on its own.
  *

@@ -232,14 +232,34 @@ describe("SupabaseRepository — reminder templates", () => {
 
   it("creates, edits, and disables a reminder template", async () => {
     const repository = createSupabaseRepository();
-    const created = await repository.createReminderTemplate({ name: `Template ${Date.now()}`, subject: "Test subject", message: "Test message" });
+    const created = await repository.createReminderTemplate({ type: "custom", name: `Template ${Date.now()}`, subject: "Test subject", message: "Test message" });
     expect(created.isActive).toBe(true);
 
-    const updated = await repository.updateReminderTemplate(created.id, { name: created.name, subject: "Updated subject", message: "Updated message" });
+    const updated = await repository.updateReminderTemplate(created.id, { type: "custom", name: created.name, subject: "Updated subject", message: "Updated message" });
     expect(updated.subject).toBe("Updated subject");
 
     const disabled = await repository.setReminderTemplateActive(created.id, false);
     expect(disabled.isActive).toBe(false);
+  });
+
+  it("blocks a second active template of the same non-custom type", async () => {
+    const repository = createSupabaseRepository();
+    const suffix = Date.now();
+    await repository.createReminderTemplate({ type: "overdue", name: `Overdue A ${suffix}`, subject: "Subject A", message: "Message A" });
+
+    await expect(
+      repository.createReminderTemplate({ type: "overdue", name: `Overdue B ${suffix}`, subject: "Subject B", message: "Message B" }),
+    ).rejects.toThrow(/already exists/i);
+  });
+
+  it("allows more than one active custom template", async () => {
+    const repository = createSupabaseRepository();
+    const suffix = Date.now();
+    await repository.createReminderTemplate({ type: "custom", name: `Custom A ${suffix}`, subject: "Subject A", message: "Message A" });
+
+    await expect(
+      repository.createReminderTemplate({ type: "custom", name: `Custom B ${suffix}`, subject: "Subject B", message: "Message B" }),
+    ).resolves.toMatchObject({ isActive: true });
   });
 });
 

@@ -7,13 +7,18 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { MockDatabase, ReminderTemplate } from "@/lib/domain/types";
+import { reminderTemplateTypeLabels } from "@/lib/domain/status-labels";
 import { createReminderTemplateAction, updateReminderTemplateAction, deleteReminderTemplateAction, setReminderTemplateActiveAction } from "@/lib/actions/reminder-templates";
 import { errorMessage } from "@/lib/errors";
 
 
+const REMINDER_TEMPLATE_TYPES = ["upcoming", "overdue", "payment_received", "final_notice", "custom"] as const;
+
 const templateSchema = z.object({
+  type: z.enum(REMINDER_TEMPLATE_TYPES),
   name: z.string().trim().min(2, "Template name must contain at least two characters."),
   subject: z.string().trim().min(1, "Enter an email subject.").max(120, "Email subject cannot exceed 120 characters."),
   message: z.string().trim().min(1, "Enter a reminder message."),
@@ -22,13 +27,20 @@ const templateSchema = z.object({
 type TemplateForm = z.infer<typeof templateSchema>;
 
 const fieldTokens = ["{customer_name}", "{villa_number}", "{amount}", "{due_date}", "{company_name}"];
-const templateTypeLabels: Record<ReminderTemplate["type"], string> = { upcoming: "Upcoming payment", overdue: "Payment overdue", payment_received: "Payment received", final_notice: "Final notice", custom: "Custom" };
+const templateTypeLabels = reminderTemplateTypeLabels;
 const templateTypeOrder: Record<ReminderTemplate["type"], number> = { upcoming: 0, overdue: 1, payment_received: 2, final_notice: 3, custom: 4 };
 const templateTypeIcons: Record<ReminderTemplate["type"], typeof Bell> = { upcoming: CalendarDays, overdue: AlertTriangle, payment_received: CheckCircle2, final_notice: Bell, custom: Bell };
+/**
+ * `upcoming` / `overdue` / `final_notice` / `payment_received` are what the cron's
+ * `try_queue_reminder()` matches on — it looks up "the active template of this type", so a
+ * template must actually be tagged with one of these to be found automatically. `custom`
+ * is the only type templates got before this form had a type picker at all, and stays
+ * available for messages sent manually by name rather than matched by trigger.
+ */
 
 function TemplateFormDialog({ template, onClose, onSaved }: { template: ReminderTemplate | null; onClose: () => void; onSaved: (template: ReminderTemplate, message: string) => void }) {
   const isEditing = Boolean(template);
-  const [form, setForm] = useState<TemplateForm>({ name: template?.name ?? "", subject: template?.subject ?? "", message: template?.message ?? "" });
+  const [form, setForm] = useState<TemplateForm>({ type: template?.type ?? "custom", name: template?.name ?? "", subject: template?.subject ?? "", message: template?.message ?? "" });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const messageRef = useRef<HTMLTextAreaElement>(null);
@@ -72,7 +84,8 @@ function TemplateFormDialog({ template, onClose, onSaved }: { template: Reminder
         <span className="grid size-11 place-items-center rounded-md bg-surface-muted"><Bell className="size-5" /></span>
         <div><DialogTitle className="text-2xl font-medium">{isEditing ? "Edit reminder template" : "Add reminder template"}</DialogTitle><DialogDescription className="mt-2 text-sm text-muted-foreground">Set the email subject and customer-facing message.</DialogDescription></div>
         <form onSubmit={submit}>
-          <label className="block max-w-md text-sm font-semibold text-muted-foreground">Template name<Input autoFocus className="mt-2" onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. 7-day payment reminder" value={form.name} /></label>
+          <label className="block max-w-md text-sm font-semibold text-muted-foreground">Reminder type<Select onValueChange={(next) => setForm({ ...form, type: next as ReminderTemplate["type"] })} value={form.type}><SelectTrigger className="mt-2"><SelectValue /></SelectTrigger><SelectContent>{REMINDER_TEMPLATE_TYPES.map((type) => <SelectItem key={type} value={type}>{templateTypeLabels[type]}</SelectItem>)}</SelectContent></Select><span className="mt-1 block text-xs font-normal text-muted-foreground">{form.type === "custom" ? "Sent manually by name — not matched to a schedule trigger automatically." : "The daily check uses one active template per type to prepare this reminder for approval automatically."}</span></label>
+          <label className="mt-5 block max-w-md text-sm font-semibold text-muted-foreground">Template name<Input autoFocus className="mt-2" onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. 7-day payment reminder" value={form.name} /></label>
           <label className="mt-5 block text-sm font-semibold text-muted-foreground">Email subject<Input className="mt-2" maxLength={120} onChange={(event) => setForm({ ...form, subject: event.target.value })} placeholder="Payment reminder for {villa_number}" value={form.subject} /><span className="mt-1 block text-right text-xs font-normal text-muted-foreground">{form.subject.length}/120</span></label>
           <label className="mt-4 block text-sm font-semibold text-muted-foreground">Message<textarea className="mt-2 min-h-44 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, message: event.target.value })} placeholder="Write the message your customer will receive..." ref={messageRef} value={form.message} /></label>
           <fieldset className="mt-3"><legend className="text-xs text-muted-foreground">Insert a customer field</legend><div className="mt-2 flex flex-wrap gap-2">{fieldTokens.map((token) => <button className="rounded-full border bg-surface-muted px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" key={token} onClick={() => insertToken(token)} type="button">{token}</button>)}</div></fieldset>

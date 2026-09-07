@@ -11,6 +11,7 @@ import { queryView, sql } from "@/lib/repositories/supabase/raw";
 import { createPaymentRecordedNotification, notificationsForUser, syncNotifications } from "@/lib/notifications/notification-centre";
 import { sendReminderEmail } from "@/lib/reminders/send";
 import { paymentStatus } from "@/lib/finance/calculations";
+import { reminderTemplateTypeLabels } from "@/lib/domain/status-labels";
 import type { Collection, CollectionAllocation, Customer, MockDatabase, PaymentSchedule, Project, ReminderApproval, ReminderLog, ReminderTemplate, User, Villa, WorkspaceNotification, WorkspaceSettings } from "@/lib/domain/types";
 import { NotImplementedError } from "@/lib/repositories/errors";
 
@@ -64,11 +65,14 @@ function validateUserInput(input: UserInput | UserUpdate) {
   // The password length rule lives in `createUser`: only account creation sets one.
 }
 
+const REMINDER_TEMPLATE_TYPES = ["upcoming", "overdue", "payment_received", "final_notice", "custom"] as const;
+
 function validateReminderTemplateInput(input: ReminderTemplateInput) {
   if (input.name.trim().length < 2) throw new Error("Template name must contain at least two characters.");
   if (!input.subject.trim()) throw new Error("Enter an email subject.");
   if (input.subject.trim().length > 120) throw new Error("Email subject cannot exceed 120 characters.");
   if (!input.message.trim()) throw new Error("Enter a reminder message.");
+  if (!REMINDER_TEMPLATE_TYPES.includes(input.type)) throw new Error("Select a reminder type.");
 }
 
 function validateGracePeriodInput(input: GracePeriodInput) {
@@ -1214,8 +1218,8 @@ export class SupabaseRepository implements Repository {
    * cron job already created for the same stage.
    */
   async createReminderApproval(input: ReminderApprovalInput): Promise<ReminderApproval> {
-    if (!input.templateId || !input.subject?.trim() || !input.message?.trim() || !input.attachmentName?.trim()) {
-      throw new Error("Select a template, complete the message, and upload an invoice PDF.");
+    if (!input.templateId || !input.subject?.trim() || !input.message?.trim()) {
+      throw new Error("Select a template and complete the reminder message.");
     }
     if (!input.sendDate) throw new Error("Select a proposed send date.");
     const currentUser = await this.getCurrentUser();
@@ -1242,7 +1246,6 @@ export class SupabaseRepository implements Repository {
       sendDate: input.sendDate,
       subject: input.subject.trim(),
       message: input.message.trim(),
-      attachmentName: input.attachmentName.trim(),
       attachmentUrl: input.attachmentUrl?.trim() || undefined,
       requestedBy: currentUser.id,
     }).returning();
@@ -1253,9 +1256,8 @@ export class SupabaseRepository implements Repository {
   async reviewReminderApproval(id: string, input: ReminderApprovalReviewInput): Promise<ReminderApproval> {
     const subject = input.subject?.trim();
     const message = input.message?.trim();
-    const attachmentName = input.attachmentName?.trim();
-    if (!input.sendDate || !subject || !message || !attachmentName) {
-      throw new Error("Complete the reminder details and attach a document.");
+    if (!input.sendDate || !subject || !message) {
+      throw new Error("Complete the reminder details before saving.");
     }
     const currentUser = await this.getCurrentUser();
 
@@ -1277,7 +1279,6 @@ export class SupabaseRepository implements Repository {
       sendDate: input.sendDate,
       subject,
       message,
-      attachmentName,
       attachmentUrl: input.attachmentUrl?.trim() || undefined,
       status: input.action === "send" ? "sent" : "ready_to_send",
       reviewedBy: currentUser.id,
@@ -1292,14 +1293,31 @@ export class SupabaseRepository implements Repository {
     return toReminderApproval(row);
   }
 
+  /**
+   * `try_queue_reminder()` (0007_reminder_cron.sql) picks the active template for a
+   * trigger with `LIMIT 1` — if two templates of the same non-custom type were both
+   * active, which one the cron used would depend on Postgres's own row order, not on
+   * anything a Super Admin chose. `custom` is exempt: those are picked by name from the
+   * manual "Send Reminder" flow, not by type, so more than one active custom is normal.
+   */
+  async assertNoActiveTypeClash(type: ReminderTemplateInput["type"], excludeId?: string) {
+    if (type === "custom") return;
+    const [clash] = await db.select({ id: schema.reminderTemplates.id }).from(schema.reminderTemplates)
+      .where(and(eq(schema.reminderTemplates.type, type), eq(schema.reminderTemplates.isActive, true), isNull(schema.reminderTemplates.deletedAt)));
+    if (clash && clash.id !== excludeId) {
+      throw new Error(`An active ${reminderTemplateTypeLabels[type]} template already exists. Disable it first.`);
+    }
+  }
+
   async createReminderTemplate(input: ReminderTemplateInput): Promise<ReminderTemplate> {
     validateReminderTemplateInput(input);
     const currentUser = await this.getCurrentUser();
     const [clash] = await db.select({ id: schema.reminderTemplates.id }).from(schema.reminderTemplates).where(and(eq(schema.reminderTemplates.name, input.name.trim()), isNull(schema.reminderTemplates.deletedAt)));
     if (clash) throw new Error("A reminder template with this name already exists.");
+    await this.assertNoActiveTypeClash(input.type);
     const [row] = await db.insert(schema.reminderTemplates).values({
       name: input.name.trim(),
-      type: "custom",
+      type: input.type,
       subject: input.subject.trim(),
       message: input.message.trim(),
       createdBy: currentUser.id,
@@ -1315,7 +1333,8 @@ export class SupabaseRepository implements Repository {
     if (!existing) throw new Error("Reminder template not found.");
     const [clash] = await db.select({ id: schema.reminderTemplates.id }).from(schema.reminderTemplates).where(and(eq(schema.reminderTemplates.name, input.name.trim()), isNull(schema.reminderTemplates.deletedAt)));
     if (clash && clash.id !== id) throw new Error("A reminder template with this name already exists.");
-    const [row] = await db.update(schema.reminderTemplates).set({ name: input.name.trim(), subject: input.subject.trim(), message: input.message.trim() }).where(eq(schema.reminderTemplates.id, id)).returning();
+    if (existing.isActive) await this.assertNoActiveTypeClash(input.type, id);
+    const [row] = await db.update(schema.reminderTemplates).set({ name: input.name.trim(), type: input.type, subject: input.subject.trim(), message: input.message.trim() }).where(eq(schema.reminderTemplates.id, id)).returning();
     await writeAuditLog(db, { tableName: "reminder_templates", recordId: id, action: "update", before: existing, after: row, actorId: currentUser.id });
     return toReminderTemplate(row);
   }
@@ -1324,6 +1343,7 @@ export class SupabaseRepository implements Repository {
     const currentUser = await this.getCurrentUser();
     const [existing] = await db.select().from(schema.reminderTemplates).where(and(eq(schema.reminderTemplates.id, id), isNull(schema.reminderTemplates.deletedAt)));
     if (!existing) throw new Error("Reminder template not found.");
+    if (isActive) await this.assertNoActiveTypeClash(existing.type, id);
     const [row] = await db.update(schema.reminderTemplates).set({ isActive }).where(eq(schema.reminderTemplates.id, id)).returning();
     await writeAuditLog(db, { tableName: "reminder_templates", recordId: id, action: isActive ? "activate" : "deactivate", before: existing, after: row, actorId: currentUser.id });
     return toReminderTemplate(row);

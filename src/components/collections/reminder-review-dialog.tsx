@@ -1,6 +1,6 @@
 "use client";
 
-import { BellRing, FileUp, ShieldCheck, X } from "lucide-react";
+import { BellRing, ShieldCheck, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { z } from "zod";
 
@@ -12,17 +12,18 @@ import { formatLkr } from "@/lib/formatters";
 import { reviewReminderApprovalAction } from "@/lib/actions/reminders";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { errorMessage } from "@/lib/errors";
+import { renderReminderText } from "@/lib/reminders/tokens";
 
 
 const reviewSchema = z.object({
   sendDate: z.string().min(1, "Select a reminder send date."),
   subject: z.string().trim().min(1, "Enter a reminder subject."),
   message: z.string().trim().min(1, "Enter a reminder message."),
-  attachmentName: z.string().trim().min(1, "Upload a supporting document."),
+  attachmentUrl: z.union([z.literal(""), z.string().trim().url("Enter a valid document link, or leave it empty.")]),
 });
 
 const formatDate = (value: string) => new Intl.DateTimeFormat("en-LK", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
-const applyTemplate = (value: string, customerName: string, villaName: string, total: number) => value.replaceAll("{{customer_name}}", customerName).replaceAll("{{villa_name}}", villaName).replaceAll("{{outstanding_amount}}", formatLkr(total));
+
 
 export function ReminderReviewDialog({ approval, database, onClose, onSuccess }: { approval: ReminderApproval; database: MockDatabase; onClose: () => void; onSuccess: (message: string) => void }) {
   const villa = database.villas.find((candidate) => candidate.id === approval.villaId);
@@ -33,7 +34,18 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
   const paymentDue = schedules.filter((schedule) => principalOutstanding(schedule) > 0).sort((left, right) => left.dueDate.localeCompare(right.dueDate))[0];
   const defaultTemplate = database.reminderTemplates.find((template) => template.id === approval.templateId && template.isActive) ?? database.reminderTemplates.find((template) => template.type === "overdue" && template.isActive);
   const totalPayable = financials.outstandingPrincipal + financials.interestOutstanding;
-  const [form, setForm] = useState(() => ({ sendDate: approval.sendDate, subject: approval.subject ?? (defaultTemplate ? applyTemplate(defaultTemplate.subject, customer?.fullName ?? "Customer", villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Villa", totalPayable) : ""), message: approval.message ?? (defaultTemplate ? applyTemplate(defaultTemplate.message, customer?.fullName ?? "Customer", villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Villa", totalPayable) : ""), attachmentName: approval.attachmentName ?? "" }));
+  // Rendered before it reaches the form, not just when falling back to the template: a
+  // cron-queued row always HAS a subject and message (copied verbatim from the template
+  // by `try_queue_reminder()`), so the `??` fallback never fired for one and the reviewer
+  // was shown — and approved — raw `{customer_name}` tokens.
+  const tokens = {
+    amount: paymentDue ? principalOutstanding(paymentDue) : totalPayable,
+    companyName: database.settings.companyName,
+    customerName: customer?.fullName ?? "Customer",
+    dueDate: paymentDue?.dueDate ?? "",
+    villaName: villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Villa",
+  };
+  const [form, setForm] = useState(() => ({ sendDate: approval.sendDate, subject: renderReminderText(approval.subject ?? defaultTemplate?.subject ?? "", tokens), message: renderReminderText(approval.message ?? defaultTemplate?.message ?? "", tokens), attachmentUrl: approval.attachmentUrl ?? "" }));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"draft" | "send" | null>(null);
   const dateChanged = form.sendDate !== approval.sendDate;
@@ -95,8 +107,8 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
       {dateChanged && <p className="mt-3 rounded-md bg-warning/15 px-4 py-3 text-sm font-medium text-warning">The send date changed. Save as draft to apply it before sending.</p>}
       <label className="mt-4 block text-sm font-semibold text-muted-foreground">Subject<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, subject: event.target.value })} value={form.subject} /></label>
       <label className="mt-4 block text-sm font-semibold text-muted-foreground">Message<textarea className="mt-2 min-h-40 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, message: event.target.value })} value={form.message} /></label>
-      <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-lg border border-dashed bg-surface p-4 text-sm font-semibold"><FileUp className="size-5 text-primary" /><span className="min-w-0 flex-1 truncate">{form.attachmentName || "Upload supporting document"}</span>{!form.attachmentName && <span className="shrink-0 text-xs text-danger">Required</span>}<input accept="application/pdf" className="sr-only" onChange={(event) => setForm({ ...form, attachmentName: event.target.files?.[0]?.name ?? "" })} type="file" /></label>
-      <p className="mt-4 rounded-md bg-success/10 px-4 py-3 text-sm text-success">The attachment filename is retained in this Phase 1 workspace. The customer email is simulated when you send the reminder.</p>
+      <label className="mt-4 block text-sm font-semibold text-muted-foreground">Supporting document link <span className="font-normal">(optional)</span><input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, attachmentUrl: event.target.value })} placeholder="https://drive.google.com/..." type="url" value={form.attachmentUrl} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Paste a link to an invoice or statement hosted elsewhere. Files are not uploaded or stored here.</span></label>
+      <p className="mt-4 rounded-md bg-success/10 px-4 py-3 text-sm text-success">Sending emails this reminder to {customer.email} straight away. There is no further confirmation step.</p>
       {error && <p className="mt-4 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p>}
       <footer className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <Button onClick={onClose} type="button" variant="ghost">Cancel</Button>
