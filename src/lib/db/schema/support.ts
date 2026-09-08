@@ -41,6 +41,8 @@ export const reminderRequests = pgTable(
     deliveryStatus: deliveryStatus("delivery_status").notNull().default("pending"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     deliveryError: text("delivery_error"),
+    /** Why a reviewer cancelled this rather than sending it — a decision, not a provider failure. */
+    rejectionReason: text("rejection_reason"),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),

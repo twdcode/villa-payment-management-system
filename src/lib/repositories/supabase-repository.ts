@@ -680,7 +680,7 @@ export class SupabaseRepository implements Repository {
   }
 
   async completeVillaSetup(input: VillaSetupInput): Promise<VillaSetupResult> {
-    if (input.number.trim().length < 1) throw new Error("Villa number is required.");
+    if (input.number.trim().length < 1) throw new Error("Enter a villa name or number.");
     if (input.type.trim().length < 1) throw new Error("Villa type is required.");
     if (!Number.isFinite(input.value) || input.value <= 0) throw new Error("Villa value must be greater than zero.");
     if (input.customerId && input.newCustomer) throw new Error("Choose an existing customer or add a new one, not both.");
@@ -696,7 +696,7 @@ export class SupabaseRepository implements Repository {
     if (!project) throw new Error("Select a valid project.");
 
     const [numberClash] = await db.select({ id: schema.villas.id }).from(schema.villas).where(and(eq(schema.villas.projectId, input.projectId), eq(schema.villas.villaNumber, input.number.trim()), isNull(schema.villas.deletedAt)));
-    if (numberClash) throw new Error("A villa with this number already exists in the selected project.");
+    if (numberClash) throw new Error("Another villa in this project already uses this name or number.");
 
     if (input.customerId) {
       const [existingCustomer] = await db.select({ id: schema.customers.id }).from(schema.customers).where(and(eq(schema.customers.id, input.customerId), isNull(schema.customers.deletedAt)));
@@ -792,7 +792,7 @@ export class SupabaseRepository implements Repository {
   }
 
   async updateVilla(villaId: string, input: VillaDetailsUpdate): Promise<Villa> {
-    if (!input.number.trim()) throw new Error("Villa number is required.");
+    if (!input.number.trim()) throw new Error("Enter a villa name or number.");
     if (!input.type.trim()) throw new Error("Villa type is required.");
     const currentUser = await this.getCurrentUser();
 
@@ -807,7 +807,7 @@ export class SupabaseRepository implements Repository {
         ne(schema.villas.id, villaId),
         isNull(schema.villas.deletedAt),
       ));
-      if (numberClash) throw new Error("A villa with this number already exists in the selected project.");
+      if (numberClash) throw new Error("Another villa in this project already uses this name or number.");
 
       const [after] = await tx.update(schema.villas).set({
         villaNumber: input.number.trim(),
@@ -1372,6 +1372,43 @@ export class SupabaseRepository implements Repository {
     }
     if (existing.request.status === "cancelled" || existing.request.status === "sent") {
       throw new Error("This reminder is no longer available for review.");
+    }
+
+    /**
+     * Cancelling: the reminder leaves the queue with a reason on the record.
+     *
+     * Without this the only way out of the queue was to send, so a Super Admin who decided
+     * NOT to chase someone had no way to say so and the row reappeared indefinitely.
+     */
+    if (input.action === "cancel") {
+      const reason = input.rejectionReason?.trim();
+      if (!reason) throw new Error("Enter a reason for cancelling this reminder.");
+      const [cancelled] = await db.update(schema.reminderRequests).set({
+        status: "cancelled",
+        reviewedBy: currentUser.id,
+        reviewedAt: new Date(),
+        rejectionReason: reason,
+      }).where(eq(schema.reminderRequests.id, id)).returning();
+      await writeAuditLog(db, { tableName: "reminder_requests", recordId: id, action: "update", before: existing.request, after: cancelled, reason, actorId: currentUser.id });
+      return toReminderApproval(cancelled);
+    }
+
+    /**
+     * Never chase money that has already arrived.
+     *
+     * A reminder is queued when a stage falls overdue, but the customer can pay at any
+     * point while it sits awaiting approval — nothing in `record_collection()` clears the
+     * queue. Approving one then emailed a demand for a balance of zero. Checked at SEND
+     * time rather than on load because the payment can land between the dialog opening and
+     * the button being pressed.
+     */
+    if (input.action === "send" && existing.request.paymentStageId) {
+      const [stage] = await queryView<{ outstanding: string; stageName: string }>(
+        sql`SELECT principal_outstanding AS outstanding, stage_name AS "stageName" FROM v_stage_position WHERE stage_id = ${existing.request.paymentStageId}::uuid`,
+      );
+      if (stage && Number(stage.outstanding) <= 0) {
+        throw new Error(`${stage.stageName} has been paid in full. Cancel this reminder instead of sending it.`);
+      }
     }
 
     // Only an ACTIVE template may be selected: a disabled or deleted one is not something

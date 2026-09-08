@@ -97,7 +97,17 @@ export type ReminderApprovalInput = Pick<ReminderApproval, "customerId" | "villa
  * Super Admin picks the wording at approval time. Recording which template was actually
  * used keeps `reminder_logs` honest about what the customer received.
  */
-export type ReminderApprovalReviewInput = Pick<ReminderApproval, "sendDate" | "subject" | "message" | "attachmentUrl" | "templateId"> & { action: "draft" | "send" };
+export type ReminderApprovalReviewInput = Pick<ReminderApproval, "sendDate" | "subject" | "message" | "attachmentUrl" | "templateId"> & {
+  action: "draft" | "send" | "cancel";
+  /**
+   * Required when `action` is `"cancel"`.
+   *
+   * Deciding NOT to chase a customer is a judgement someone may have to account for later,
+   * the same way a waived charge is — so the queue records why rather than just losing the
+   * row. Ignored for the other actions.
+   */
+  rejectionReason?: string;
+};
 export type ReminderTemplateInput = Pick<ReminderTemplate, "name" | "subject" | "message" | "type">;
 export type ApplicationSettingsInput = Pick<WorkspaceSettings, "companyName" | "dateFormat" | "replyToEmail">;
 export type InterestDefaultsInput = Pick<WorkspaceSettings, "defaultChargeLatePaymentInterest" | "defaultInterestTerms">;
