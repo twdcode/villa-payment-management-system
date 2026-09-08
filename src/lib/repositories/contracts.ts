@@ -177,10 +177,22 @@ export interface Repository {
    * extending a stage's grace period is how the company gives a late customer a break, and
    * writing off money deserves a recorded reason. Ordinary schedule edits pass nothing.
    */
-  updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[], waiverReason?: string): Promise<PaymentSchedule[]>;
+  updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[]): Promise<PaymentSchedule[]>;
   /** How much charged interest a proposed grace period would remove, for the confirmation prompt. */
-  previewInterestWaiver(villaId: string, changes: Array<{ scheduleId: string; gracePeriodDays: number }>): Promise<Array<{ scheduleId: string; stage: string; amount: number }>>;
-  updateVillaInterestTerms(villaId: string, input: VillaInterestTermsInput): Promise<Villa>;
+  /**
+   * How much charged interest a proposed set of terms would remove, per stage.
+   *
+   * Rate, grace and the interest switch all reduce accrual, so the prompt covers the whole
+   * proposed terms rather than grace alone — a halved rate writes off just as much money as
+   * an extended grace period, and previously only one of them warned.
+   */
+  previewInterestWaiver(villaId: string, input: VillaInterestTermsInput): Promise<Array<{ scheduleId: string; stage: string; amount: number }>>;
+  /**
+   * `waiverReason` is required only when the change removes interest already charged.
+   * Interest a customer has PAID is never reduced, so a settled stage is unaffected however
+   * the terms move.
+   */
+  updateVillaInterestTerms(villaId: string, input: VillaInterestTermsInput, waiverReason?: string): Promise<Villa>;
   addVillaDocument(villaId: string, input: DocumentLinkInput): Promise<void>;
   updateVillaDocument(documentId: string, input: DocumentLinkUpdate): Promise<void>;
   deleteVillaDocument(documentId: string, reason: string): Promise<void>;

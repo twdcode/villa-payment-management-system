@@ -15,9 +15,9 @@ export async function completeVillaSetupAction(input: VillaSetupInput): Promise<
   return result;
 }
 
-export async function updatePaymentScheduleAction(villaId: string, schedules: PaymentScheduleUpdateInput[], waiverReason?: string): Promise<PaymentSchedule[]> {
+export async function updatePaymentScheduleAction(villaId: string, schedules: PaymentScheduleUpdateInput[]): Promise<PaymentSchedule[]> {
   await requirePermission("manage_villas", { villaId });
-  const result = await (await getRepository()).updatePaymentSchedule(villaId, schedules, waiverReason);
+  const result = await (await getRepository()).updatePaymentSchedule(villaId, schedules);
   revalidatePath(`/projects`);
   return result;
 }
@@ -29,14 +29,14 @@ export async function updatePaymentScheduleAction(villaId: string, schedules: Pa
  * save it precedes — the figures describe a villa's money and are not for anyone who
  * could not change them anyway.
  */
-export async function previewInterestWaiverAction(villaId: string, changes: Array<{ scheduleId: string; gracePeriodDays: number }>): Promise<Array<{ scheduleId: string; stage: string; amount: number }>> {
+export async function previewInterestWaiverAction(villaId: string, input: VillaInterestTermsInput): Promise<Array<{ scheduleId: string; stage: string; amount: number }>> {
   await requirePermission("manage_villas", { villaId });
-  return (await getRepository()).previewInterestWaiver(villaId, changes);
+  return (await getRepository()).previewInterestWaiver(villaId, input);
 }
 
-export async function updateVillaInterestTermsAction(villaId: string, input: VillaInterestTermsInput): Promise<Villa> {
+export async function updateVillaInterestTermsAction(villaId: string, input: VillaInterestTermsInput, waiverReason?: string): Promise<Villa> {
   await requirePermission("manage_villas", { villaId });
-  const villa = await (await getRepository()).updateVillaInterestTerms(villaId, input);
+  const villa = await (await getRepository()).updateVillaInterestTerms(villaId, input, waiverReason);
   revalidatePath(`/projects`);
   return villa;
 }

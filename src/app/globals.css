@@ -100,6 +100,22 @@ button, input, select, textarea { font: inherit; }
 .project-card.project-card--completed:hover { border-color: var(--success); }
 
 /*
+ * A card that is itself a link.
+ *
+ * `* { border-color: var(--border) }` above sets a border colour on every element, and
+ * that beats Tailwind's `hover:border-*` utilities — which is why `hover:border-foreground`
+ * silently did nothing on these cards. The doubled class raises specificity the same way
+ * `.project-card` does, so the hover state actually applies.
+ */
+.linked-card {
+  transition: border-color 150ms, box-shadow 150ms;
+}
+
+.linked-card.linked-card:hover {
+  border-color: var(--foreground);
+}
+
+/*
  * Printing a receipt.
  *
  * The receipt lives inside a Radix dialog: a `position: fixed` box centred with a

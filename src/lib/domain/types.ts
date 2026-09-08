@@ -210,6 +210,15 @@ export type ReminderApproval = {
   message?: string;
   attachmentName?: string;
   attachmentUrl?: string;
+  /** Who actioned it and when — set once a Super Admin sends, drafts or cancels it. */
+  reviewedBy?: string | null;
+  reviewedAt?: DateString;
+  /** Why a reviewer cancelled this instead of sending it. Only ever set on a cancelled row. */
+  rejectionReason?: string;
+  /** Provider outcome for a sent reminder, so a failed delivery is visible rather than silent. */
+  deliveryStatus?: string;
+  deliveryError?: string;
+  sentAt?: DateString;
 };
 
 export type WorkspaceNotification = {

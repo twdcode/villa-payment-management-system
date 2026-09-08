@@ -1,6 +1,6 @@
 "use client";
 
-import { BellRing, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, BellRing, ShieldCheck, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { z } from "zod";
 
@@ -24,6 +24,20 @@ const reviewSchema = z.object({
   message: z.string().trim().min(1, "Enter a reminder message."),
   attachmentUrl: z.union([z.literal(""), z.string().trim().url("Enter a valid document link, or leave it empty.")]),
 });
+
+const statusLabel: Record<ReminderApproval["status"], string> = {
+  awaiting_approval: "Awaiting approval",
+  ready_to_send: "Ready to send",
+  sent: "Sent",
+  cancelled: "Cancelled",
+};
+
+const statusPill: Record<ReminderApproval["status"], string> = {
+  awaiting_approval: "bg-warning/15 text-warning",
+  ready_to_send: "bg-surface-muted text-primary",
+  sent: "bg-success/10 text-success",
+  cancelled: "bg-danger/10 text-danger",
+};
 
 const formatDate = (value: string) => new Intl.DateTimeFormat("en-LK", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
 
@@ -69,6 +83,18 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"draft" | "send" | "cancel" | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  /**
+   * A cancelled or sent reminder is history, not work.
+   *
+   * The dialog still opens for those — "what did we email this customer?" and "why was
+   * this not sent?" are exactly the questions asked afterwards — but every field is
+   * read-only and the actions are gone, so it reads as a record rather than a form.
+   */
+  const actioned = approval.status === "cancelled" || approval.status === "sent";
+  // Names come from the directory already in `database.users`; a missing one just leaves
+  // the outcome unattributed rather than blocking the banner.
+  const reviewer = approval.reviewedBy ? database.users.find((user) => user.id === approval.reviewedBy)?.name : undefined;
   const dateChanged = form.sendDate !== approval.sendDate;
   // The stage this reminder chases may have been settled while the row sat in the queue.
   // Surfaced here as well as enforced on the server, so the reviewer sees it before
@@ -125,17 +151,37 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
 
   return <Dialog onOpenChange={(open) => !open && onClose()} open>
     <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-5xl overflow-y-auto rounded-lg p-5 sm:w-[calc(100%-2rem)] sm:p-7" showClose={false}>
+      {/*
+        Asked here rather than as an always-visible field with a disabled button: a button
+        that looks broken until you notice an input elsewhere in the form is not an
+        affordance. Matches the confirm-with-reason pattern the villa cancellation, villa
+        deletion and interest waiver already use.
+      */}
+      {confirmCancel && <Dialog onOpenChange={(next) => !next && setConfirmCancel(false)} open>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-lg rounded-lg p-6" showClose={false}>
+          <span className="grid size-11 place-items-center rounded-md bg-warning/15"><AlertTriangle className="size-5 text-warning" /></span>
+          <DialogTitle className="mt-4 text-xl font-medium">Cancel this reminder?</DialogTitle>
+          <DialogDescription className="mt-1">It will not be sent to {customer.email}, and will not return to the queue for this reminder day. Later reminder days for the same payment are unaffected.</DialogDescription>
+          <label className="mt-5 block text-sm font-semibold text-muted-foreground">Reason<input autoFocus className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setRejectionReason(event.target.value)} placeholder="Why is this reminder not being sent?" value={rejectionReason} /></label>
+          {error && <p className="mt-3 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger" role="alert">{error}</p>}
+          <footer className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button onClick={() => setConfirmCancel(false)} type="button" variant="outline">Keep reminder</Button>
+            <Button disabled={saving !== null || rejectionReason.trim().length < 3} onClick={() => void save("cancel")} type="button" variant="destructive">{saving === "cancel" ? "Cancelling..." : "Cancel reminder"}</Button>
+          </footer>
+        </DialogContent>
+      </Dialog>}
+
       <div className="flex items-start justify-between gap-4">
         <div>
           <span className="grid size-11 place-items-center rounded-md bg-surface-muted"><ShieldCheck className="size-5 text-primary" /></span>
-          <DialogTitle className="mt-4 text-2xl font-medium">Reminder details</DialogTitle>
+          <DialogTitle className="mt-4 text-2xl font-medium">{actioned ? "Reminder record" : "Reminder details"}</DialogTitle>
           <DialogDescription className="mt-1">{villaName} · {stageLabel} · {formatLkr(totalPayable)}</DialogDescription>
         </div>
         <Button aria-label="Close reminder review" onClick={onClose} size="icon" type="button" variant="ghost"><X className="size-5" /></Button>
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-3 text-sm">
-        <span className="rounded-full bg-surface-muted px-3 py-1 font-semibold text-primary">{approval.status === "ready_to_send" ? "Ready to send" : "Awaiting approval"}</span>
+        <span className={`rounded-full px-3 py-1 font-semibold ${statusPill[approval.status]}`}>{statusLabel[approval.status]}</span>
         <span className="text-muted-foreground">Requested {formatDate(approval.requestedAt.slice(0, 10))}</span>
       </div>
 
@@ -151,25 +197,30 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
       </section>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="text-sm font-semibold text-muted-foreground">Reminder template<Select onValueChange={selectTemplate} value={form.templateId}><SelectTrigger className="mt-2"><SelectValue placeholder="Select template" /></SelectTrigger><SelectContent>{activeTemplates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}</SelectContent></Select><span className="mt-1 block text-xs font-normal text-muted-foreground">Changing this replaces the subject and message below.</span></label>
-        <label className="text-sm font-semibold text-muted-foreground">Reminder send date<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, sendDate: event.target.value })} type="date" value={form.sendDate} /></label>
+        <label className="text-sm font-semibold text-muted-foreground">Reminder template<Select disabled={actioned} onValueChange={selectTemplate} value={form.templateId}><SelectTrigger className="mt-2"><SelectValue placeholder="Select template" /></SelectTrigger><SelectContent>{activeTemplates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}</SelectContent></Select><span className="mt-1 block text-xs font-normal text-muted-foreground">Changing this replaces the subject and message below.</span></label>
+        <label className="text-sm font-semibold text-muted-foreground">Reminder send date<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" disabled={actioned} onChange={(event) => setForm({ ...form, sendDate: event.target.value })} type="date" value={form.sendDate} /></label>
       </div>
       <div className="mt-4 rounded-md border bg-surface-subtle p-4"><p className="text-xs text-muted-foreground">Payment due date</p><p className="mt-1 font-semibold">{paymentDue ? formatDate(paymentDue.dueDate) : "No unpaid stage"}</p><p className="mt-1 text-xs text-muted-foreground">Changing the reminder date does not change the payment due date.</p></div>
       {dateChanged && <p className="mt-3 rounded-md bg-warning/15 px-4 py-3 text-sm font-medium text-warning">The send date changed. Save as draft to apply it before sending.</p>}
-      <label className="mt-4 block text-sm font-semibold text-muted-foreground">Subject<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, subject: event.target.value })} value={form.subject} /></label>
-      <label className="mt-4 block text-sm font-semibold text-muted-foreground">Message<textarea className="mt-2 min-h-40 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, message: event.target.value })} value={form.message} /></label>
-      <label className="mt-4 block text-sm font-semibold text-muted-foreground">Supporting document link <span className="font-normal">(optional)</span><input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, attachmentUrl: event.target.value })} placeholder="https://drive.google.com/..." type="url" value={form.attachmentUrl} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Paste a link to an invoice or statement hosted elsewhere. Files are not uploaded or stored here.</span></label>
-      <label className="mt-4 block text-sm font-semibold text-muted-foreground">Reason if rejected<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setRejectionReason(event.target.value)} placeholder="Required only when cancelling" value={rejectionReason} /></label>
-      {settled
-        ? <p className="mt-4 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger">This payment has been settled since the reminder was queued. Cancel it rather than sending a request for money already received.</p>
-        : <p className="mt-4 rounded-md bg-success/10 px-4 py-3 text-sm text-success">Sending emails this reminder to {customer.email} straight away. There is no further confirmation step.</p>}
-      {!settled && sendsEarly && <p className="mt-3 rounded-md bg-warning/15 px-4 py-3 text-sm font-medium text-warning">This reminder is scheduled for {formatDate(form.sendDate)}. Sending now delivers it ahead of that date.</p>}
+      <label className="mt-4 block text-sm font-semibold text-muted-foreground">Subject<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" disabled={actioned} onChange={(event) => setForm({ ...form, subject: event.target.value })} value={form.subject} /></label>
+      <label className="mt-4 block text-sm font-semibold text-muted-foreground">Message<textarea className="mt-2 min-h-40 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground" disabled={actioned} onChange={(event) => setForm({ ...form, message: event.target.value })} value={form.message} /></label>
+      <label className="mt-4 block text-sm font-semibold text-muted-foreground">Supporting document link <span className="font-normal">(optional)</span><input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" disabled={actioned} onChange={(event) => setForm({ ...form, attachmentUrl: event.target.value })} placeholder="https://drive.google.com/..." type="url" value={form.attachmentUrl} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Paste a link to an invoice or statement hosted elsewhere. Files are not uploaded or stored here.</span></label>
+      {actioned
+        ? approval.status === "cancelled"
+          ? <div className="mt-4 rounded-md bg-warning/15 px-4 py-3 text-sm text-warning"><p className="font-semibold">Cancelled{reviewer ? ` by ${reviewer}` : ""}{approval.reviewedAt ? ` on ${formatDate(approval.reviewedAt.slice(0, 10))}` : ""}</p>{approval.rejectionReason && <p className="mt-1">{approval.rejectionReason}</p>}</div>
+          : <div className={`mt-4 rounded-md px-4 py-3 text-sm ${approval.deliveryStatus === "failed" ? "bg-danger/10 text-danger" : "bg-success/10 text-success"}`}><p className="font-semibold">{approval.deliveryStatus === "failed" ? "Delivery failed" : "Sent"}{reviewer ? ` by ${reviewer}` : ""}{approval.sentAt ? ` on ${formatDate(approval.sentAt.slice(0, 10))}` : ""}</p><p className="mt-1">{approval.deliveryError ?? `Emailed to ${customer.email}.`}</p></div>
+        : settled
+          ? <p className="mt-4 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger">This payment has been settled since the reminder was queued. Cancel it rather than sending a request for money already received.</p>
+          : <p className="mt-4 rounded-md bg-success/10 px-4 py-3 text-sm text-success">Sending emails this reminder to {customer.email} straight away. There is no further confirmation step.</p>}
+      {!actioned && !settled && sendsEarly && <p className="mt-3 rounded-md bg-warning/15 px-4 py-3 text-sm font-medium text-warning">This reminder is scheduled for {formatDate(form.sendDate)}. Sending now delivers it ahead of that date.</p>}
       {error && <p className="mt-4 rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p>}
       <footer className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <Button onClick={onClose} type="button" variant="ghost">Close</Button>
-        <Button className="text-danger hover:text-danger" disabled={saving !== null || rejectionReason.trim().length < 3} onClick={() => void save("cancel")} type="button" variant="outline">{saving === "cancel" ? "Cancelling..." : "Cancel reminder"}</Button>
-        <Button disabled={saving !== null} onClick={() => void save("draft")} type="button" variant="outline">{saving === "draft" ? "Saving..." : "Save new date"}</Button>
-        <Button disabled={saving !== null || dateChanged || settled} onClick={() => void save("send")} type="button"><BellRing className="size-4" />{saving === "send" ? "Sending..." : "Send now"}</Button>
+        <Button onClick={onClose} type="button" variant={actioned ? "outline" : "ghost"}>Close</Button>
+        {!actioned && <>
+          <Button className="text-danger hover:text-danger" disabled={saving !== null} onClick={() => { setRejectionReason(""); setConfirmCancel(true); }} type="button" variant="outline">Cancel reminder</Button>
+          <Button disabled={saving !== null} onClick={() => void save("draft")} type="button" variant="outline">{saving === "draft" ? "Saving..." : "Save new date"}</Button>
+          <Button disabled={saving !== null || dateChanged || settled} onClick={() => void save("send")} type="button"><BellRing className="size-4" />{saving === "send" ? "Sending..." : "Send now"}</Button>
+        </>}
       </footer>
     </DialogContent>
   </Dialog>;

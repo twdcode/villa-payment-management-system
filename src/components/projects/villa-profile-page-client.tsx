@@ -68,7 +68,6 @@ function PaymentScheduleDialog({ onOpenChange, onSaved, open, schedules, villa }
   const [drafts, setDrafts] = useState<ScheduleDraft[]>(() => scheduleDrafts(schedules, villa.interestTerms?.gracePeriodDays ?? 30));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [waiver, setWaiver] = useState<{ entries: Array<{ scheduleId: string; stage: string; amount: number }>; reason: string } | null>(null);
   const total = drafts.reduce((sum, draft) => sum + draft.principalAmount, 0);
   const difference = villa.value - total;
 
@@ -76,14 +75,12 @@ function PaymentScheduleDialog({ onOpenChange, onSaved, open, schedules, villa }
     setDrafts((current) => current.map((draft) => draft.clientId === clientId ? { ...draft, ...patch } : draft));
   }
 
-  const payload = () => drafts.map((draft) => ({ id: draft.id, stage: draft.stage, deliverables: draft.deliverables, dueDate: draft.dueDate, principalAmount: draft.principalAmount, gracePeriodDays: draft.gracePeriodDays }));
-
-  async function commit(reason?: string) {
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
     setSaving(true);
     try {
-      await updatePaymentScheduleAction(villa.id, payload(), reason);
-      setWaiver(null);
+      await updatePaymentScheduleAction(villa.id, drafts.map((draft) => ({ id: draft.id, stage: draft.stage, deliverables: draft.deliverables, dueDate: draft.dueDate, principalAmount: draft.principalAmount, gracePeriodDays: draft.gracePeriodDays })));
       onOpenChange(false);
       onSaved();
     } catch (failure) {
@@ -93,65 +90,12 @@ function PaymentScheduleDialog({ onOpenChange, onSaved, open, schedules, villa }
     }
   }
 
-  /**
-   * Checks whether saving would wipe out interest already charged, and asks first.
-   *
-   * Extending a stage's grace period is deliberate — it is how the company gives a late
-   * customer a break — but the same field is edited during ordinary schedule maintenance,
-   * where silently writing off money would be a nasty surprise. The prompt only appears
-   * when real money is at stake; edits that waive nothing save straight through.
-   */
-  async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    const changed = drafts.flatMap((draft) => {
-      const current = schedules.find((schedule) => schedule.id === draft.id);
-      return draft.id && current && current.gracePeriodDays !== draft.gracePeriodDays
-        ? [{ scheduleId: draft.id, gracePeriodDays: draft.gracePeriodDays }]
-        : [];
-    });
-    if (changed.length) {
-      setSaving(true);
-      try {
-        const affected = await previewInterestWaiverAction(villa.id, changed);
-        if (affected.length) {
-          setWaiver({ entries: affected, reason: "" });
-          return;
-        }
-      } catch (failure) {
-        setError(errorMessage(failure, "Unable to check the interest impact of this change."));
-        return;
-      } finally {
-        setSaving(false);
-      }
-    }
-    await commit();
-  }
-
   return <Dialog onOpenChange={onOpenChange} open={open}>
     <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-[90rem] flex-col gap-0 overflow-hidden rounded-lg p-0 sm:w-[calc(100%-2rem)]" showClose={false}>
       <div className="shrink-0 border-b bg-surface px-5 py-5 sm:px-7 sm:py-6"><div className="flex items-start justify-between gap-5"><div><span className="grid size-11 place-items-center rounded-md bg-surface-muted"><CalendarDays className="size-5 text-primary" /></span><DialogTitle className="mt-4 text-xl font-medium sm:text-2xl">Update payment schedule</DialogTitle><DialogDescription className="mt-1 text-sm text-muted-foreground">{villaLabel(villa.number)} · Edit stages, due dates, amounts and construction deliverables.</DialogDescription></div><Button aria-label="Close payment schedule editor" className="shrink-0" onClick={() => onOpenChange(false)} size="icon" type="button" variant="ghost"><X className="size-5" /></Button></div>
         <dl className="mt-5 grid gap-3 rounded-lg bg-surface-subtle p-4 sm:grid-cols-3"><div><dt className="text-xs text-muted-foreground">Villa value</dt><dd className="mt-1 text-sm font-semibold">{formatLkr(villa.value)}</dd></div><div><dt className="text-xs text-muted-foreground">Schedule total</dt><dd className="mt-1 text-sm font-semibold">{formatLkr(total)}</dd></div><div><dt className="text-xs text-muted-foreground">Difference</dt><dd className={`mt-1 text-sm font-semibold ${difference === 0 ? "" : "text-danger"}`}>{formatLkr(Math.abs(difference))}{difference === 0 ? "" : difference > 0 ? " remaining" : " over"}</dd></div></dl>
       </div>
-      {waiver && <Dialog onOpenChange={(next) => !next && setWaiver(null)} open>
-        <DialogContent className="w-[calc(100%-2rem)] max-w-lg rounded-lg p-6" showClose={false}>
-          <span className="grid size-11 place-items-center rounded-md bg-warning/15"><AlertTriangle className="size-5 text-warning" /></span>
-          <DialogTitle className="mt-4 text-xl font-medium">Remove interest already charged?</DialogTitle>
-          <DialogDescription className="mt-1">Extending the grace period writes off interest that has already accrued on {waiver.entries.length === 1 ? "this stage" : "these stages"}.</DialogDescription>
-          <ul className="mt-4 space-y-2 rounded-lg bg-surface-subtle p-4 text-sm">
-            {waiver.entries.map((entry) => <li className="flex items-center justify-between gap-4" key={entry.scheduleId}><span className="min-w-0 truncate">{entry.stage}</span><span className="shrink-0 font-semibold text-danger">&minus;{formatLkr(entry.amount)}</span></li>)}
-            {waiver.entries.length > 1 && <li className="flex items-center justify-between gap-4 border-t pt-2 font-semibold"><span>Total</span><span className="text-danger">&minus;{formatLkr(waiver.entries.reduce((sum, entry) => sum + entry.amount, 0))}</span></li>}
-          </ul>
-          <p className="mt-3 text-xs text-muted-foreground">Interest the customer has already paid is not refunded by this change.</p>
-          <label className="mt-4 block text-sm font-semibold text-muted-foreground">Reason<input autoFocus className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setWaiver((current) => current && { ...current, reason: event.target.value })} placeholder="Why is this interest being written off?" value={waiver.reason} /></label>
-          {error && <p className="mt-3 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger" role="alert">{error}</p>}
-          <footer className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <Button onClick={() => setWaiver(null)} type="button" variant="outline">Cancel</Button>
-            <Button disabled={saving || waiver.reason.trim().length < 3} onClick={() => void commit(waiver.reason)} type="button">{saving ? "Saving..." : "Waive interest and save"}</Button>
-          </footer>
-        </DialogContent>
-      </Dialog>}
-      <form className="flex min-h-0 flex-1 flex-col" onSubmit={save}><div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7"><div className="space-y-4">{drafts.map((draft, index) => <section className="rounded-lg border bg-surface p-4 sm:p-5" key={draft.clientId}><div className="flex items-center justify-between gap-4"><h3 className="text-sm font-semibold">{index + 1}. {draft.stage || "Payment stage"}</h3><Button className="h-auto px-0 py-1 text-xs text-danger hover:bg-transparent hover:text-danger" disabled={draft.principalPaid > 0 || drafts.length === 1} onClick={() => setDrafts((current) => current.filter((candidate) => candidate.clientId !== draft.clientId))} type="button" variant="ghost">Remove</Button></div><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5"><label className="text-sm font-semibold text-muted-foreground">Stage name<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { stage: event.target.value })} value={draft.stage} /></label><label className="text-sm font-semibold text-muted-foreground">Due date<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { dueDate: event.target.value })} type="date" value={draft.dueDate} /></label><label className="text-sm font-semibold text-muted-foreground">Amount<CurrencyInput className="h-11" onChange={(next) => updateDraft(draft.clientId, { principalAmount: Number(next) || 0 })} value={draft.principalAmount ? String(draft.principalAmount) : ""} /></label><label className="text-sm font-semibold text-muted-foreground">Grace period (days)<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" inputMode="numeric" min={0} onChange={(event) => updateDraft(draft.clientId, { gracePeriodDays: Math.max(0, Number(event.target.value.replace(/[^0-9]/g, "")) || 0) })} type="number" value={draft.gracePeriodDays} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Interest starts after this many days past the due date.</span></label><div className="text-sm font-semibold text-muted-foreground">Paid to date<div className="mt-2 flex h-11 items-center rounded-md border bg-surface-muted px-3 text-sm text-muted-foreground">{formatLkr(draft.principalPaid)}</div></div></div><label className="mt-4 block text-sm font-semibold text-muted-foreground">Stage deliverables<textarea className="mt-2 min-h-24 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { deliverables: event.target.value })} placeholder="Construction work or documents delivered at this stage..." value={draft.deliverables ?? ""} /></label></section>)}</div><Button className="mt-5 w-full border-dashed sm:w-auto" onClick={() => setDrafts((current) => [...current, { clientId: crypto.randomUUID(), stage: "", deliverables: "", dueDate: "", principalAmount: 0, gracePeriodDays: villa.interestTerms?.gracePeriodDays ?? 30, principalPaid: 0 }])} type="button" variant="outline"><Plus className="size-4" />Add payment stage</Button></div><footer className="shrink-0 border-t bg-surface px-5 py-4 sm:px-7"><p className="mb-3 text-sm text-muted-foreground">Incomplete schedules can be saved and finished later. They cannot be used for collections until every stage is complete.</p>{error && <p className="mb-3 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger" role="alert">{error}</p>}<div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button onClick={() => onOpenChange(false)} type="button" variant="outline">Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save schedule"}</Button></div></footer></form>
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={save}><div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7"><div className="space-y-4">{drafts.map((draft, index) => <section className="rounded-lg border bg-surface p-4 sm:p-5" key={draft.clientId}><div className="flex items-center justify-between gap-4"><h3 className="text-sm font-semibold">{index + 1}. {draft.stage || "Payment stage"}</h3><Button className="h-auto px-0 py-1 text-xs text-danger hover:bg-transparent hover:text-danger" disabled={draft.principalPaid > 0 || drafts.length === 1} onClick={() => setDrafts((current) => current.filter((candidate) => candidate.clientId !== draft.clientId))} type="button" variant="ghost">Remove</Button></div><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><label className="text-sm font-semibold text-muted-foreground">Stage name<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { stage: event.target.value })} value={draft.stage} /></label><label className="text-sm font-semibold text-muted-foreground">Due date<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { dueDate: event.target.value })} type="date" value={draft.dueDate} /></label><label className="text-sm font-semibold text-muted-foreground">Amount<CurrencyInput className="h-11" onChange={(next) => updateDraft(draft.clientId, { principalAmount: Number(next) || 0 })} value={draft.principalAmount ? String(draft.principalAmount) : ""} /></label><div className="text-sm font-semibold text-muted-foreground">Paid to date<div className="mt-2 flex h-11 items-center rounded-md border bg-surface-muted px-3 text-sm text-muted-foreground">{formatLkr(draft.principalPaid)}</div></div></div><label className="mt-4 block text-sm font-semibold text-muted-foreground">Stage deliverables<textarea className="mt-2 min-h-24 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { deliverables: event.target.value })} placeholder="Construction work or documents delivered at this stage..." value={draft.deliverables ?? ""} /></label></section>)}</div><Button className="mt-5 w-full border-dashed sm:w-auto" onClick={() => setDrafts((current) => [...current, { clientId: crypto.randomUUID(), stage: "", deliverables: "", dueDate: "", principalAmount: 0, gracePeriodDays: villa.interestTerms?.gracePeriodDays ?? 30, principalPaid: 0 }])} type="button" variant="outline"><Plus className="size-4" />Add payment stage</Button></div><footer className="shrink-0 border-t bg-surface px-5 py-4 sm:px-7"><p className="mb-3 text-sm text-muted-foreground">Incomplete schedules can be saved and finished later. They cannot be used for collections until every stage is complete.</p>{error && <p className="mb-3 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger" role="alert">{error}</p>}<div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button onClick={() => onOpenChange(false)} type="button" variant="outline">Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save schedule"}</Button></div></footer></form>
     </DialogContent>
   </Dialog>;
 }
@@ -170,12 +114,42 @@ function InterestTermsDialog({ onOpenChange, onSaved, open, terms: initialTerms,
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [waiver, setWaiver] = useState<{ entries: Array<{ scheduleId: string; stage: string; amount: number }>; reason: string } | null>(null);
   const disabled = !chargeLatePaymentInterest;
 
   function updateTerms(patch: Partial<InterestTerms>) {
     setTerms((current) => ({ ...current, ...patch }));
   }
 
+  const buildInput = () => ({
+    chargeLatePaymentInterest,
+    interestTerms: { ...terms, ...Object.fromEntries(TERM_COUNT_FIELDS.map((field) => [field, Number(counts[field])])) } as InterestTerms,
+  });
+
+  async function commit(reason?: string) {
+    setError("");
+    setSaving(true);
+    try {
+      await updateVillaInterestTermsAction(villa.id, buildInput(), reason);
+      setWaiver(null);
+      onOpenChange(false);
+      onSaved();
+    } catch (failure) {
+      setError(errorMessage(failure, "Unable to update interest terms."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Checks whether saving would write off interest already charged, and asks first.
+   *
+   * Extending grace, lowering the rate and switching interest off all reduce accrual on
+   * stages that are still outstanding — the same money, three different fields — so the
+   * prompt covers the whole terms change rather than grace alone. Interest a customer has
+   * already PAID is floored server-side and never appears here, so a settled stage cannot
+   * trigger it.
+   */
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -186,26 +160,48 @@ function InterestTermsDialog({ onOpenChange, onSaved, open, terms: initialTerms,
     }
     setSaving(true);
     try {
-      const numericTerms: InterestTerms = { ...terms, ...Object.fromEntries(TERM_COUNT_FIELDS.map((field) => [field, Number(counts[field])])) };
-      await updateVillaInterestTermsAction(villa.id, { chargeLatePaymentInterest, interestTerms: numericTerms });
-      onOpenChange(false);
-      onSaved();
-    } catch (reason) {
-      setError(errorMessage(reason, "Unable to update interest terms."));
+      const affected = await previewInterestWaiverAction(villa.id, buildInput());
+      if (affected.length) {
+        setWaiver({ entries: affected, reason: "" });
+        return;
+      }
+    } catch (failure) {
+      setError(errorMessage(failure, "Unable to check the interest impact of this change."));
+      return;
     } finally {
       setSaving(false);
     }
+    await commit();
   }
 
   return <Dialog onOpenChange={onOpenChange} open={open}>
     <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-3xl flex-col gap-0 overflow-hidden rounded-lg p-0 sm:w-[calc(100%-2rem)]" showClose={false}>
+      {waiver && <Dialog onOpenChange={(next) => !next && setWaiver(null)} open>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-lg rounded-lg p-6" showClose={false}>
+          <span className="grid size-11 place-items-center rounded-md bg-warning/15"><AlertTriangle className="size-5 text-warning" /></span>
+          <DialogTitle className="mt-4 text-xl font-medium">Remove interest already charged?</DialogTitle>
+          <DialogDescription className="mt-1">These interest terms write off interest that has already accrued on {waiver.entries.length === 1 ? "this stage" : "these stages"}.</DialogDescription>
+          <ul className="mt-4 space-y-2 rounded-lg bg-surface-subtle p-4 text-sm">
+            {waiver.entries.map((entry) => <li className="flex items-center justify-between gap-4" key={entry.scheduleId}><span className="min-w-0 truncate">{entry.stage}</span><span className="shrink-0 font-semibold text-danger">&minus;{formatLkr(entry.amount)}</span></li>)}
+            {waiver.entries.length > 1 && <li className="flex items-center justify-between gap-4 border-t pt-2 font-semibold"><span>Total</span><span className="text-danger">&minus;{formatLkr(waiver.entries.reduce((sum, entry) => sum + entry.amount, 0))}</span></li>}
+          </ul>
+          <p className="mt-3 text-xs text-muted-foreground">Interest the customer has already paid is not refunded by this change.</p>
+          <label className="mt-4 block text-sm font-semibold text-muted-foreground">Reason<input autoFocus className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setWaiver((current) => current && { ...current, reason: event.target.value })} placeholder="Why is this interest being written off?" value={waiver.reason} /></label>
+          {error && <p className="mt-3 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger" role="alert">{error}</p>}
+          <footer className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button onClick={() => setWaiver(null)} type="button" variant="outline">Cancel</Button>
+            <Button disabled={saving || waiver.reason.trim().length < 3} onClick={() => void commit(waiver.reason)} type="button">{saving ? "Saving..." : "Waive interest and save"}</Button>
+          </footer>
+        </DialogContent>
+      </Dialog>}
+
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={save}>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
           <div className="flex items-start justify-between gap-5"><div><span className="grid size-11 place-items-center rounded-md bg-surface-muted"><Clock3 className="size-5 text-primary" /></span><DialogTitle className="mt-4 text-xl font-medium sm:text-2xl">Update interest terms</DialogTitle><DialogDescription className="mt-1 text-sm text-muted-foreground">{villaLabel(villa.number)} · S&amp;P late-payment settings</DialogDescription></div><Button aria-label="Close interest terms editor" className="shrink-0" onClick={() => onOpenChange(false)} size="icon" type="button" variant="ghost"><X className="size-5" /></Button></div>
           <label className="mt-5 flex cursor-pointer items-center gap-3 rounded-lg bg-surface-subtle p-4 text-sm font-semibold"><input checked={chargeLatePaymentInterest} className="size-5 rounded border accent-primary" onChange={(event) => setChargeLatePaymentInterest(event.target.checked)} type="checkbox" />Charge late-payment interest</label>
           <fieldset className="mt-6 grid gap-5 sm:grid-cols-2" disabled={disabled}>
             <label className="text-sm font-semibold text-muted-foreground">Monthly rate (%)<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-surface-muted" min="0" onChange={(event) => updateTerms({ monthlyRate: percentToRate(Number(event.target.value)) })} step="0.1" type="number" value={rateToPercent(terms.monthlyRate).toString()} /></label>
-            <label className="text-sm font-semibold text-muted-foreground">Grace period (days)<NumberInput className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-surface-muted" disabled={disabled} onChange={(next) => setCounts((current) => ({ ...current, gracePeriodDays: next }))} value={counts.gracePeriodDays} /></label>
+            <label className="text-sm font-semibold text-muted-foreground">Default grace period (days)<NumberInput className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-surface-muted" disabled={disabled} onChange={(next) => setCounts((current) => ({ ...current, gracePeriodDays: next }))} value={counts.gracePeriodDays} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Applies to stages added from now on. To change an existing stage, edit its grace period in the payment schedule.</span></label>
             <label className="text-sm font-semibold text-muted-foreground">Pro-rata day divisor<NumberInput className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-surface-muted" disabled={disabled} onChange={(next) => setCounts((current) => ({ ...current, proRataDivisor: next }))} value={counts.proRataDivisor} /></label>
             <label className="text-sm font-semibold text-muted-foreground">Interest start<Select disabled={disabled} onValueChange={(next) => updateTerms({ interestStart: next as InterestTerms["interestStart"] })} value={terms.interestStart}><SelectTrigger className="mt-2 h-11 disabled:bg-surface-muted"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="after_grace">After grace period</SelectItem><SelectItem value="from_due_date">From due date</SelectItem></SelectContent></Select></label>
             <label className="text-sm font-semibold text-muted-foreground">First reminder day<NumberInput className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-surface-muted" disabled={disabled} onChange={(next) => setCounts((current) => ({ ...current, reminderDaysAfterDue: next }))} value={counts.reminderDaysAfterDue} /></label>
@@ -490,7 +486,7 @@ function ConfiguredVillaProfile({ database, onCollectionSaved, onDetailsSaved, o
     {setupItems.some((item) => !item.complete) && <section className="mt-7 flex flex-col gap-5 rounded-2xl border border-accent bg-surface px-5 py-5 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">{setupItems.filter((item) => item.complete).length} of {setupItems.length} complete</p><h2 className="mt-2 text-lg font-semibold">Finish setting up this villa</h2><p className="mt-1 text-sm text-muted-foreground">Complete the missing details now, or return to them later.</p></div><div className="flex flex-wrap gap-2">{setupItems.map((item) => <span className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${item.complete ? "bg-success/10 text-success" : "bg-surface text-muted-foreground"}`} key={item.label}><CheckCircle2 className="size-4" />{item.label}</span>)}</div></section>}
     {customer ? <section className="mt-7 flex flex-col justify-between gap-4 rounded-2xl border border-accent bg-surface p-5 sm:flex-row sm:items-center"><div className="flex items-center gap-4"><span className="grid size-12 place-items-center rounded-full bg-surface-muted font-semibold text-primary">{customer.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2)}</span><div><p className="text-xs font-semibold text-muted-foreground">Customer</p><p className="mt-1 font-semibold">{customer.fullName}</p><p className="mt-1 text-sm text-muted-foreground">{customer.phone} <span aria-hidden="true">|</span> {customer.email}</p></div></div><div className="flex gap-2"><Button asChild size="sm" variant="ghost"><Link href={`/customers/${customer.id}`}>View <UserRound className="size-4" /></Link></Button>{canEditVilla && villa.operationalStatus !== "cancelled" && <Button onClick={() => setReassignOpen(true)} size="sm" variant="outline">Change <Pencil className="size-4" /></Button>}</div></section> : canEditVilla && villa.operationalStatus !== "cancelled" && <section className="mt-7 flex flex-col justify-between gap-4 rounded-2xl border border-dashed bg-surface-subtle p-5 sm:flex-row sm:items-center"><div className="flex items-center gap-4"><span className="grid size-12 place-items-center rounded-full bg-surface-muted"><UserRound className="size-6 text-muted-foreground" /></span><div><p className="text-xs font-semibold text-muted-foreground">Customer</p><p className="mt-1 font-semibold">No customer assigned</p></div></div><Button onClick={() => setReassignOpen(true)} size="sm" variant="outline">Assign customer <Plus className="size-4" /></Button></section>}
     <div className="mt-7 grid gap-5 xl:grid-cols-[minmax(0,1.8fr)_minmax(18rem,0.9fr)]"><section className="overflow-hidden rounded-2xl border bg-surface"><div className="p-6"><h2 className="text-lg font-semibold">Payment schedule</h2><p className="mt-2 text-sm text-muted-foreground">Interest: {rateToPercent(terms.monthlyRate).toFixed(1)}% monthly <span aria-hidden="true">·</span> {terms.gracePeriodDays}-day grace</p></div><div className="overflow-x-auto"><table className="min-w-180 w-full text-left"><thead className="bg-surface-subtle text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"><tr><th className="px-5 py-4">Stage &amp; deliverables</th><th className="px-5 py-4">Due / grace</th><th className="px-5 py-4">Principal balance</th><th className="px-5 py-4">Interest</th><th className="px-5 py-4">Total payable</th><th className="px-5 py-4">Status</th></tr></thead><tbody className="divide-y">{schedules.map((schedule) => <tr key={schedule.id}><td className="px-5 py-5"><p className="font-semibold">{schedule.stage}</p>{schedule.deliverables && <p className="mt-1 text-sm text-muted-foreground">{schedule.deliverables}</p>}</td><td className="px-5 py-5 text-sm"><p>{formatScheduleDate(schedule.dueDate)}</p><p className="mt-1 text-muted-foreground">{schedule.gracePeriodDays}-day grace</p></td><td className="px-5 py-5 text-sm font-semibold">{formatLkr(principalOutstanding(schedule))}</td><td className="px-5 py-5 text-sm">{formatLkr(interestOutstanding(schedule))}</td><td className="px-5 py-5 text-sm font-semibold">{formatLkr(totalOutstanding(schedule))}</td><td className="px-5 py-5"><PaymentStatusBadge status={schedule.status} /></td></tr>)}</tbody></table></div></section>
-      <aside className="space-y-5"><section className="rounded-2xl border bg-surface p-6"><h2 className="text-lg font-semibold">S&amp;P interest terms</h2><p className="mt-2 text-sm text-muted-foreground">Stored on this agreement</p><dl className="mt-5 divide-y text-sm"><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Monthly rate</dt><dd className="font-semibold">{rateToPercent(terms.monthlyRate).toFixed(1)}%</dd></div><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Grace period</dt><dd className="font-semibold">{terms.gracePeriodDays} days</dd></div><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Pro-rata divisor</dt><dd className="font-semibold">{terms.proRataDivisor} days</dd></div><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Allocation</dt><dd className="font-semibold">Interest first</dd></div></dl></section><section className="rounded-2xl border bg-surface p-6"><h2 className="text-lg font-semibold">Collections</h2><p className="mt-2 text-sm text-muted-foreground">{collections.length} recorded payments</p><div className="mt-5 space-y-4">{collections.length ? collections.slice(0, 3).map((collection) => <div className="border-t pt-4" key={collection.id}><div className="flex justify-between gap-4"><p className="font-semibold">{new Intl.DateTimeFormat("en-LK", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${collection.paymentDate}T00:00:00`))}</p><p className="font-semibold">{formatLkr(collection.totalAmount)}</p></div><p className="mt-1 text-sm text-muted-foreground">{collection.paymentMethod.replace("_", " ")} <span aria-hidden="true">·</span> {collection.referenceNumber}</p></div>) : <p className="text-sm text-muted-foreground">No collections recorded.</p>}</div></section></aside>
+      <aside className="space-y-5"><section className="rounded-2xl border bg-surface p-6"><h2 className="text-lg font-semibold">S&amp;P interest terms</h2><p className="mt-2 text-sm text-muted-foreground">Stored on this agreement</p><dl className="mt-5 divide-y text-sm"><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Monthly rate</dt><dd className="font-semibold">{rateToPercent(terms.monthlyRate).toFixed(1)}%</dd></div><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Default grace period</dt><dd className="font-semibold">{terms.gracePeriodDays} days</dd></div><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Pro-rata divisor</dt><dd className="font-semibold">{terms.proRataDivisor} days</dd></div><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Allocation</dt><dd className="font-semibold">Interest first</dd></div></dl></section><section className="rounded-2xl border bg-surface p-6"><h2 className="text-lg font-semibold">Collections</h2><p className="mt-2 text-sm text-muted-foreground">{collections.length} recorded payments</p><div className="mt-5 space-y-4">{collections.length ? collections.slice(0, 3).map((collection) => <div className="border-t pt-4" key={collection.id}><div className="flex justify-between gap-4"><p className="font-semibold">{new Intl.DateTimeFormat("en-LK", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${collection.paymentDate}T00:00:00`))}</p><p className="font-semibold">{formatLkr(collection.totalAmount)}</p></div><p className="mt-1 text-sm text-muted-foreground">{collection.paymentMethod.replace("_", " ")} <span aria-hidden="true">·</span> {collection.referenceNumber}</p></div>) : <p className="text-sm text-muted-foreground">No collections recorded.</p>}</div></section></aside>
     </div></>}{collectionOpen && customer && <RecordPaymentDialog customer={customer} database={database} key={`${villa.id}-${collectionOpen}`} onClose={() => setCollectionOpen(false)} onSuccess={(message) => { setCollectionOpen(false); onCollectionSaved(message); }} villa={villa} />}<PaymentScheduleDialog key={`${villa.id}-${scheduleEditorOpen}-${schedules.map((schedule) => schedule.id).join("-")}`} onOpenChange={setScheduleEditorOpen} onSaved={onScheduleSaved} open={scheduleEditorOpen} schedules={schedules} villa={villa} /><InterestTermsDialog key={`${villa.id}-${interestEditorOpen}-${villa.chargeLatePaymentInterest}`} onOpenChange={setInterestEditorOpen} onSaved={onInterestSaved} open={interestEditorOpen} terms={storedTerms} villa={villa} />{detailsEditorOpen && <EditVillaDetailsDialog onClose={() => setDetailsEditorOpen(false)} onSaved={() => { setDetailsEditorOpen(false); onDetailsSaved(); }} villa={villa} />}{reassignOpen && <ReassignCustomerDialog currentCustomer={customer ?? null} database={database} onClose={() => setReassignOpen(false)} onSaved={() => { setReassignOpen(false); onReassignSaved(); }} villa={villa} />}
   </>;
 }

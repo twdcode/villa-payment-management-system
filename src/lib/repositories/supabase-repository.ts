@@ -320,6 +320,12 @@ function toReminderApproval(row: {
   message: string;
   attachmentName: string | null;
   attachmentUrl: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: Date | string | null;
+  rejectionReason?: string | null;
+  deliveryStatus?: string | null;
+  deliveryError?: string | null;
+  sentAt?: Date | string | null;
 }): ReminderApproval {
   return {
     id: row.id,
@@ -334,6 +340,15 @@ function toReminderApproval(row: {
     ...(row.message ? { message: row.message } : {}),
     ...(row.attachmentName ? { attachmentName: row.attachmentName } : {}),
     ...(row.attachmentUrl ? { attachmentUrl: row.attachmentUrl } : {}),
+    // The review outcome. Written by `reviewReminderApproval` and previously stranded in
+    // the database — the reason a Super Admin gave for cancelling could not be read back
+    // anywhere in the UI.
+    ...(row.reviewedBy ? { reviewedBy: row.reviewedBy } : {}),
+    ...(row.reviewedAt ? { reviewedAt: row.reviewedAt instanceof Date ? row.reviewedAt.toISOString() : row.reviewedAt } : {}),
+    ...(row.rejectionReason ? { rejectionReason: row.rejectionReason } : {}),
+    ...(row.deliveryStatus ? { deliveryStatus: row.deliveryStatus } : {}),
+    ...(row.deliveryError ? { deliveryError: row.deliveryError } : {}),
+    ...(row.sentAt ? { sentAt: row.sentAt instanceof Date ? row.sentAt.toISOString() : row.sentAt } : {}),
   };
 }
 
@@ -889,26 +904,33 @@ export class SupabaseRepository implements Repository {
     return rows.map(toPaymentSchedule);
   }
 
-  async previewInterestWaiver(villaId: string, changes: Array<{ scheduleId: string; gracePeriodDays: number }>): Promise<Array<{ scheduleId: string; stage: string; amount: number }>> {
-    if (!changes.length) return [];
+  async previewInterestWaiver(villaId: string, input: VillaInterestTermsInput): Promise<Array<{ scheduleId: string; stage: string; amount: number }>> {
     const today = await getWorkspaceToday();
     const stages = await db.select({ id: schema.paymentStages.id, stageName: schema.paymentStages.stageName })
       .from(schema.paymentStages).where(eq(schema.paymentStages.villaId, villaId));
-    const nameById = new Map(stages.map((row) => [row.id, row.stageName]));
 
+    const terms = input.interestTerms;
     const results: Array<{ scheduleId: string; stage: string; amount: number }> = [];
-    for (const change of changes) {
-      if (!nameById.has(change.scheduleId)) continue;
-      const [row] = await queryView<{ amount: string }>(
-        sql`SELECT public.preview_stage_interest_waiver(${change.scheduleId}::uuid, ${change.gracePeriodDays}, ${today}::date) AS amount`,
-      );
+    for (const stage of stages) {
+      const [row] = await queryView<{ amount: string }>(sql`
+        SELECT public.preview_stage_interest_waiver(
+          ${stage.id}::uuid,
+          ${terms.gracePeriodDays},
+          ${String(terms.monthlyRate)}::numeric,
+          ${input.chargeLatePaymentInterest},
+          ${terms.interestStart},
+          ${terms.proRataDivisor},
+          ${today}::date
+        ) AS amount
+      `);
       const amount = Number(row?.amount ?? 0);
-      if (amount > 0) results.push({ scheduleId: change.scheduleId, stage: nameById.get(change.scheduleId)!, amount });
+      if (amount > 0) results.push({ scheduleId: stage.id, stage: stage.stageName, amount });
     }
     return results;
   }
 
-  async updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[], waiverReason?: string): Promise<PaymentSchedule[]> {
+
+  async updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[]): Promise<PaymentSchedule[]> {
     if (!schedules.length) throw new Error("Add at least one payment stage.");
     if (schedules.some((schedule) => !schedule.stage.trim() || schedule.principalAmount < 0 || schedule.gracePeriodDays < 0)) {
       throw new Error("Each stage needs a name, non-negative amount, and valid grace period.");
@@ -982,39 +1004,7 @@ export class SupabaseRepository implements Repository {
         };
         updated.push({ ...next, status: paymentStatus(next, today) });
       }
-      // Re-derive interest for every stage whose grace period changed, and record what that
-      // removed. Extending grace is the company's way of giving a late customer a break;
-      // without this the stage keeps its old `interest_charged` and the gesture does
-      // nothing. `rederive_stage_interest` never drops below interest already paid.
-      const waived: Array<{ stage: string; amount: number }> = [];
-      for (const schedule of schedules) {
-        if (!schedule.id) continue;
-        const current = existingById.get(schedule.id);
-        if (!current || current.gracePeriodDays === schedule.gracePeriodDays) continue;
-        const before = Number(current.interestCharged ?? 0);
-        const [row] = await tx.execute<{ charged: string }>(
-          sql`SELECT public.rederive_stage_interest(${schedule.id}::uuid, ${today}::date) AS charged`,
-        );
-        const after = Number(row?.charged ?? 0);
-        if (before - after > 0) waived.push({ stage: current.stageName, amount: before - after });
-      }
-
-      // Writing off money that was already charged needs a reason on the record, the same
-      // way a collection correction does. Ordinary schedule edits waive nothing and are
-      // unaffected.
-      if (waived.length && !waiverReason?.trim()) {
-        throw new Error("Enter a reason for removing interest already charged.");
-      }
-
-      await writeAuditLog(tx, { tableName: "payment_stages", recordId: villaId, action: "update", before: existing, after: updated, actorId: currentUser.id, ...(waived.length ? { reason: waiverReason!.trim() } : {}) });
-      if (waived.length) {
-        await tx.insert(schema.notes).values({
-          scope: "villa",
-          villaId,
-          content: `Interest waived: ${waived.map((entry) => `${entry.stage} ${formatWaivedAmount(entry.amount)}`).join(", ")}. Reason: ${waiverReason!.trim()}`,
-          authorId: currentUser.id,
-        });
-      }
+      await writeAuditLog(tx, { tableName: "payment_stages", recordId: villaId, action: "update", before: existing, after: updated, actorId: currentUser.id });
       return updated;
     });
 
@@ -1026,9 +1016,10 @@ export class SupabaseRepository implements Repository {
     return this.getSchedules(villaId);
   }
 
-  async updateVillaInterestTerms(villaId: string, input: VillaInterestTermsInput): Promise<Villa> {
+  async updateVillaInterestTerms(villaId: string, input: VillaInterestTermsInput, waiverReason?: string): Promise<Villa> {
     validateInterestTerms(input.interestTerms);
     const currentUser = await this.getCurrentUser();
+    const today = await getWorkspaceToday();
     return db.transaction(async (tx) => {
       const [villa] = await tx.select().from(schema.villas).where(and(eq(schema.villas.id, villaId), isNull(schema.villas.deletedAt)));
       if (!villa) throw new Error("Villa not found.");
@@ -1050,7 +1041,37 @@ export class SupabaseRepository implements Repository {
       const termsRow = existing
         ? (await tx.update(schema.villaInterestTerms).set(values).where(eq(schema.villaInterestTerms.villaId, villaId)).returning())[0]
         : (await tx.insert(schema.villaInterestTerms).values({ villaId, ...values }).returning())[0];
-      await writeAuditLog(tx, { tableName: "villa_interest_terms", recordId: villaId, action: existing ? "update" : "create", before: existing, after: termsRow, actorId: currentUser.id });
+      // Re-derive every stage under the new terms. `rederive_stage_interest` floors each at
+      // the interest already collected against it, so a settled stage cannot lose interest
+      // the customer paid — which is what makes "only affects unpaid stages" true without
+      // needing a status check here.
+      const stages = await tx.select({ id: schema.paymentStages.id, stageName: schema.paymentStages.stageName, interestCharged: schema.paymentStages.interestCharged })
+        .from(schema.paymentStages).where(eq(schema.paymentStages.villaId, villaId));
+      const waived: Array<{ stage: string; amount: number }> = [];
+      for (const stage of stages) {
+        const before = Number(stage.interestCharged ?? 0);
+        const [row] = await tx.execute<{ charged: string }>(
+          sql`SELECT public.rederive_stage_interest(${stage.id}::uuid, ${today}::date) AS charged`,
+        );
+        const after = Number(row?.charged ?? 0);
+        if (before - after > 0) waived.push({ stage: stage.stageName, amount: before - after });
+      }
+
+      // Writing off charged interest needs a reason on the record, the same way a
+      // collection correction does. Terms edits that waive nothing are unaffected.
+      if (waived.length && !waiverReason?.trim()) {
+        throw new Error("Enter a reason for removing interest already charged.");
+      }
+
+      await writeAuditLog(tx, { tableName: "villa_interest_terms", recordId: villaId, action: existing ? "update" : "create", before: existing, after: termsRow, actorId: currentUser.id, ...(waived.length ? { reason: waiverReason!.trim() } : {}) });
+      if (waived.length) {
+        await tx.insert(schema.notes).values({
+          scope: "villa",
+          villaId,
+          content: `Interest waived: ${waived.map((entry) => `${entry.stage} ${formatWaivedAmount(entry.amount)}`).join(", ")}. Reason: ${waiverReason!.trim()}`,
+          authorId: currentUser.id,
+        });
+      }
 
       const [customerLink] = await tx.select().from(schema.villaCustomers).where(and(eq(schema.villaCustomers.villaId, villaId), isNull(schema.villaCustomers.unassignedAt)));
       return toVilla({ ...villa, customerId: customerLink?.customerId ?? null }, termsRow);
