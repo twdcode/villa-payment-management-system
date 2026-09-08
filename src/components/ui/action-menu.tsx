@@ -32,7 +32,7 @@ export function ActionMenu({ children, label, trigger }: { children: React.React
   return (
     <PopperPrimitive.Root>
       <PopperPrimitive.Anchor asChild>
-        <button aria-expanded={open} aria-haspopup="menu" aria-label={label} className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={(event) => { setAnchor(event.currentTarget); setOpen((current) => !current); }} type="button">
+        <button aria-expanded={open} aria-haspopup="menu" aria-label={label} className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={(event) => { setAnchor(event.currentTarget); setOpen((current) => !current); }} type="button">
           {trigger}
         </button>
       </PopperPrimitive.Anchor>

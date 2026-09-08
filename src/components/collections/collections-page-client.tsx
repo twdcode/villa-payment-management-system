@@ -16,7 +16,7 @@ import type { MockDatabase, ReminderApproval, ReminderApprovalStatus } from "@/l
 import { collectionRowStatusLabels } from "@/lib/domain/status-labels";
 import { buildCollectionRows, type CollectionRow, type CollectionRowStatus } from "@/lib/domain/collection-rows";
 import { addDays, calculateVillaFinancials, isPaymentScheduleReady, paymentStatus, principalOutstanding } from "@/lib/finance/calculations";
-import { formatLkr } from "@/lib/formatters";
+import { formatLkr, numberToWordsLkr } from "@/lib/formatters";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { isVillaActive } from "@/lib/domain/villa-status";
 import { useCurrentUser } from "@/components/auth/current-user-provider";
@@ -27,6 +27,34 @@ type View = "all" | "reminders";
 const approvalLabels: Record<ReminderApprovalStatus, string> = { awaiting_approval: "Awaiting approval", cancelled: "Cancelled", ready_to_send: "Ready to send", sent: "Sent" };
 const approvalClasses: Record<ReminderApprovalStatus, string> = { awaiting_approval: "bg-warning/15 text-warning", cancelled: "bg-danger/10 text-danger", ready_to_send: "bg-surface-muted text-primary", sent: "bg-success/10 text-success" };
 const formatDate = (value: string) => new Intl.DateTimeFormat("en-LK", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
+/**
+ * `2026/08/12` — the compact form the Collections table uses.
+ *
+ * The table has ten columns to fit without horizontal scroll, and a date is the one field
+ * where a shorter representation costs nothing: it stays unambiguous, sorts the same, and
+ * saves roughly 40px per row against `Nov 21, 2026`. Every other screen keeps the long
+ * form, which reads better where there is room for it.
+ */
+const formatDateCompact = (value: string) => value.replaceAll("-", "/");
+
+/**
+ * `47,000,000` — the amount alone, no currency prefix.
+ *
+ * The three money columns already carry `(LKR)` in their headers, so repeating it in
+ * every cell costs horizontal space the table does not have and adds nothing. Cards and
+ * dialogs still use `formatLkr`, where the prefix is the only thing naming the currency.
+ */
+const formatAmount = (value: number) => new Intl.NumberFormat("en-LK", { maximumFractionDigits: 0 }).format(value);
+
+/**
+ * The amount in words, without the trailing "rupees".
+ *
+ * `numberToWordsLkr` writes "forty-seven million rupees" because it is used where the
+ * figure stands alone. Here the column header already says `(LKR)`, so the suffix is
+ * noise in a 9px line that has to stay on one row — and "Zero Rupees" under a zero
+ * interest cell reads worse than nothing at all.
+ */
+const amountInWords = (value: number) => (value === 0 ? "" : numberToWordsLkr(value).replace(/ rupees?$/, ""));
 const formatDateTime = (value: string) => new Intl.DateTimeFormat("en-LK", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
 
 function SelectControl({ children, onChange, value }: { children: React.ReactNode; onChange: (value: string) => void; value: string }) {
@@ -50,24 +78,53 @@ function CollectionTable({ database, rows }: { database: MockDatabase; rows: Col
   const projects = new Map(database.projects.map((project) => [project.id, project]));
   const receipts = new Map(database.receipts.map((receipt) => [receipt.collectionId, receipt]));
 
-  return <div className="overflow-x-auto rounded-lg border bg-surface"><table className="min-w-[75rem] w-full text-left text-sm"><thead className="bg-surface-subtle text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"><tr><th className="px-5 py-4">Due date</th><th className="px-5 py-4">Receipt</th><th className="px-5 py-4">Customer</th><th className="px-5 py-4">Villa</th><th className="px-5 py-4">Method</th><th className="px-5 py-4">Principal (LKR)</th><th className="px-5 py-4">Interest (LKR)</th><th className="px-5 py-4">Total (LKR)</th><th className="px-5 py-4">Status</th><th className="sticky right-0 z-10 bg-surface-subtle px-5 py-4 text-right">Action</th></tr></thead><tbody>{rows.length ? rows.map((row) => {
-    const customer = customers.get(row.customerId);
-    const villa = villas.get(row.villaId);
-    const project = projects.get(row.projectId);
-    const receipt = row.collection ? receipts.get(row.collection.id) : undefined;
-    return <tr className="border-t" key={row.id}>
-      <td className="whitespace-nowrap px-5 py-4"><p className="font-medium">{formatDate(row.dueDate)}</p>{row.paymentDate && <p className="mt-1 text-xs text-muted-foreground">Paid {formatDate(row.paymentDate)}</p>}</td>
-      <td className="px-5 py-4">{receipt ? <><p className="font-semibold">{receipt.number}</p><p className="mt-1 text-xs text-muted-foreground">{row.collection?.referenceNumber}</p></> : <span className="text-muted-foreground">&mdash;</span>}</td>
-      <td className="px-5 py-4 font-medium">{customer?.fullName ?? "Unknown customer"}</td>
-      <td className="px-5 py-4"><p className="font-medium">{villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Unknown villa"}</p><p className="mt-1 text-xs text-muted-foreground">{row.stage ?? project?.location ?? ""}</p></td>
-      <td className="px-5 py-4 capitalize">{row.collection ? row.collection.paymentMethod.replace("_", " ") : <span className="text-muted-foreground">&mdash;</span>}</td>
-      <td className="px-5 py-4 font-semibold">{formatLkr(row.principalAmount)}</td>
-      <td className="px-5 py-4 font-semibold">{formatLkr(row.interestAmount)}</td>
-      <td className="px-5 py-4 font-semibold">{formatLkr(row.totalAmount)}</td>
-      <td className="px-5 py-4"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${rowStatusClasses[row.status]}`}>{collectionRowStatusLabels[row.status]}</span></td>
-      <td className="sticky right-0 z-10 bg-surface px-5 py-4 text-right"><CollectionRowActions database={database} row={row} /></td>
-    </tr>;
-  }) : <tr><td className="px-5 py-10 text-center text-muted-foreground" colSpan={10}>No payments match these filters.</td></tr>}</tbody></table></div>;
+  return <div className="overflow-x-auto rounded-lg border bg-surface">
+    {/*
+      Sized to the design: 11px primary text, 9px secondary, and every cell on a single
+      line. `table-fixed` plus a colgroup is what keeps it that way — with auto layout the
+      browser widens each column to its longest value anywhere in the table (one long
+      customer name pushed the whole row past the viewport), so the columns are given
+      explicit shares instead and the two free-text fields truncate.
+    */}
+    <table className="w-full min-w-[52rem] table-fixed text-left">
+      <colgroup>
+        <col className="w-[9%]" /><col className="w-[11%]" /><col className="w-[11%]" /><col className="w-[9%]" /><col className="w-[10%]" />
+        <col className="w-[12%]" /><col className="w-[12%]" /><col className="w-[12%]" /><col className="w-[8%]" /><col className="w-[6%]" />
+      </colgroup>
+      <thead className="bg-surface-subtle text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        <tr>
+          <th className="px-3 py-3">Date</th>
+          <th className="px-3 py-3">Receipt</th>
+          <th className="px-3 py-3">Customer</th>
+          <th className="px-3 py-3">Villa</th>
+          <th className="px-3 py-3">Method</th>
+          <th className="px-3 py-3">Principal (LKR)</th>
+          <th className="px-3 py-3">Interest (LKR)</th>
+          <th className="px-3 py-3">Total (LKR)</th>
+          <th className="px-3 py-3">Status</th>
+          <th className="sticky right-0 z-10 bg-surface-subtle px-3 py-3 text-right">Action</th>
+        </tr>
+      </thead>
+      <tbody className="text-[11px] leading-[1.5]">{rows.length ? rows.map((row) => {
+        const customer = customers.get(row.customerId);
+        const villa = villas.get(row.villaId);
+        const project = projects.get(row.projectId);
+        const receipt = row.collection ? receipts.get(row.collection.id) : undefined;
+        return <tr className="border-t" key={row.id}>
+          <td className="whitespace-nowrap px-3 py-3">{formatDateCompact(row.dueDate)}{row.paymentDate && <span className="mt-0.5 block text-[9px] tracking-[0.17px] text-muted-foreground">Paid {formatDateCompact(row.paymentDate)}</span>}</td>
+          <td className="truncate px-3 py-3">{receipt ? <><span className="block truncate font-bold">{receipt.number}</span><span className="mt-0.5 block truncate text-[9px] tracking-[0.17px] text-muted-foreground">{row.collection?.referenceNumber}</span></> : <span className="text-muted-foreground">&mdash;</span>}</td>
+          <td className="truncate px-3 py-3" title={customer?.fullName}>{customer?.fullName ?? "Unknown customer"}</td>
+          <td className="truncate px-3 py-3" title={row.stage ?? project?.location ?? ""}><span className="block truncate">{villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Unknown villa"}</span><span className="mt-0.5 block truncate text-[9px] tracking-[0.17px] text-muted-foreground">{row.stage ?? project?.location ?? ""}</span></td>
+          <td className="truncate px-3 py-3 capitalize">{row.collection ? row.collection.paymentMethod.replace("_", " ") : <span className="text-muted-foreground">&mdash;</span>}</td>
+          <td className="px-3 py-3"><span className="block truncate font-bold">{formatAmount(row.principalAmount)}</span><span className="mt-0.5 block truncate text-[9px] capitalize tracking-[0.17px] text-muted-foreground">{amountInWords(row.principalAmount)}</span></td>
+          <td className="px-3 py-3"><span className="block truncate font-bold">{formatAmount(row.interestAmount)}</span><span className="mt-0.5 block truncate text-[9px] capitalize tracking-[0.17px] text-muted-foreground">{amountInWords(row.interestAmount)}</span></td>
+          <td className="px-3 py-3"><span className="block truncate font-bold">{formatAmount(row.totalAmount)}</span><span className="mt-0.5 block truncate text-[9px] capitalize tracking-[0.17px] text-muted-foreground">{amountInWords(row.totalAmount)}</span></td>
+          <td className="px-3 py-3"><span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-semibold ${rowStatusClasses[row.status]}`}>{collectionRowStatusLabels[row.status]}</span></td>
+          <td className="sticky right-0 z-10 bg-surface px-3 py-3 text-right"><CollectionRowActions database={database} row={row} /></td>
+        </tr>;
+      }) : <tr><td className="px-3 py-10 text-center text-muted-foreground" colSpan={10}>No payments match these filters.</td></tr>}</tbody>
+    </table>
+  </div>;
 }
 
 function ReminderTable({ approvals, database, onReview }: { approvals: ReminderApproval[]; database: MockDatabase; onReview: (approval: ReminderApproval) => void }) {
@@ -75,7 +132,7 @@ function ReminderTable({ approvals, database, onReview }: { approvals: ReminderA
   const villas = new Map(database.villas.map((villa) => [villa.id, villa]));
   const projects = new Map(database.projects.map((project) => [project.id, project]));
   const users = new Map(database.users.map((user) => [user.id, user]));
-  return <div className="overflow-x-auto rounded-lg border bg-surface"><table className="min-w-[68rem] w-full text-left text-sm"><thead className="bg-surface-subtle text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"><tr><th className="px-5 py-4">Customer</th><th className="px-5 py-4">Villa</th><th className="px-5 py-4">Send date</th><th className="px-5 py-4">Requested by</th><th className="px-5 py-4">Status</th><th className="px-5 py-4">Villa</th><th className="sticky right-0 z-10 bg-surface-subtle px-5 py-4 text-right">Action</th></tr></thead><tbody>{approvals.length ? approvals.map((approval) => { const customer = customers.get(approval.customerId); const villa = villas.get(approval.villaId); const project = villa ? projects.get(villa.projectId) : null; const requester = approval.requestedBy ? users.get(approval.requestedBy) : null; return <tr className="border-t" key={approval.id}><td className="px-5 py-4 font-medium">{customer?.fullName ?? "Unknown customer"}</td><td className="px-5 py-4"><p className="font-medium">{villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Unknown villa"}</p><p className="mt-1 text-xs text-muted-foreground">{project?.location ?? ""}</p></td><td className="whitespace-nowrap px-5 py-4">{formatDate(approval.sendDate)}</td><td className="px-5 py-4"><p className="font-semibold">{requester?.name ?? "System generated"}</p><p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(approval.requestedAt)}</p></td><td className="px-5 py-4"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${approvalClasses[approval.status]}`}>{approvalLabels[approval.status]}</span></td><td className="px-5 py-4"><Link className="font-semibold hover:text-muted-foreground" href={`/projects/${villa?.projectId}/villas/${villa?.id}`}>View villa</Link></td><td className="sticky right-0 z-10 bg-surface px-5 py-4 text-right"><Button disabled={approval.status === "cancelled" || approval.status === "sent"} aria-label={`Review reminder for ${customer?.fullName ?? "customer"}`} onClick={() => onReview(approval)} variant="outline">Review</Button></td></tr>; }) : <tr><td className="px-5 py-10 text-center text-muted-foreground" colSpan={7}>No reminders match these filters.</td></tr>}</tbody></table></div>;
+  return <div className="overflow-x-auto rounded-lg border bg-surface"><table className="min-w-[68rem] w-full text-left text-sm"><thead className="bg-surface-subtle text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"><tr><th className="px-4 py-4">Customer</th><th className="px-4 py-4">Villa</th><th className="px-4 py-4">Send date</th><th className="px-4 py-4">Requested by</th><th className="px-4 py-4">Status</th><th className="px-4 py-4">Villa</th><th className="sticky right-0 z-10 bg-surface-subtle px-4 py-4 text-right">Action</th></tr></thead><tbody>{approvals.length ? approvals.map((approval) => { const customer = customers.get(approval.customerId); const villa = villas.get(approval.villaId); const project = villa ? projects.get(villa.projectId) : null; const requester = approval.requestedBy ? users.get(approval.requestedBy) : null; return <tr className="border-t" key={approval.id}><td className="truncate px-4 py-4 font-medium" title={customer?.fullName}>{customer?.fullName ?? "Unknown customer"}</td><td className="px-4 py-4"><p className="font-medium">{villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Unknown villa"}</p><p className="mt-1 text-xs text-muted-foreground">{project?.location ?? ""}</p></td><td className="whitespace-nowrap px-4 py-4">{formatDate(approval.sendDate)}</td><td className="px-4 py-4"><p className="font-semibold">{requester?.name ?? "System generated"}</p><p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(approval.requestedAt)}</p></td><td className="px-4 py-4"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${approvalClasses[approval.status]}`}>{approvalLabels[approval.status]}</span></td><td className="px-4 py-4"><Link className="font-semibold hover:text-muted-foreground" href={`/projects/${villa?.projectId}/villas/${villa?.id}`}>View villa</Link></td><td className="sticky right-0 z-10 bg-surface px-4 py-4 text-right"><Button disabled={approval.status === "cancelled" || approval.status === "sent"} aria-label={`Review reminder for ${customer?.fullName ?? "customer"}`} onClick={() => onReview(approval)} variant="outline">Review</Button></td></tr>; }) : <tr><td className="px-5 py-10 text-center text-muted-foreground" colSpan={7}>No reminders match these filters.</td></tr>}</tbody></table></div>;
 }
 
 function CollectionSummaryCards({ database }: { database: MockDatabase }) {
