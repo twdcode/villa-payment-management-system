@@ -1,26 +1,24 @@
 "use client";
 
-import { Building2, CornerDownLeft, Home, Loader2, ReceiptText, Search, UserRound, X } from "lucide-react";
+import { Building2, CornerDownLeft, Home, Loader2, Search, UserRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { globalSearchAction, type SearchResult } from "@/lib/actions/search";
 import { cn } from "@/lib/utils";
 
-const groupOrder = ["project", "villa", "customer", "receipt"] as const;
+const groupOrder = ["project", "villa", "customer"] as const;
 
 const groupLabels: Record<SearchResult["kind"], string> = {
   project: "Projects",
   villa: "Villas",
   customer: "Customers",
-  receipt: "Receipts",
 };
 
 const groupIcons: Record<SearchResult["kind"], typeof Building2> = {
   project: Building2,
   villa: Home,
   customer: UserRound,
-  receipt: ReceiptText,
 };
 
 /** Long enough that typing a word does not fire a query per keystroke. */
@@ -205,7 +203,7 @@ export function GlobalSearch() {
           aria-autocomplete="list"
           aria-controls="global-search-results"
           aria-expanded={open}
-          aria-label="Search customers, villas, projects and receipts"
+          aria-label="Search customers, villas and projects"
           autoComplete="off"
           className={cn(
             "h-11 w-full rounded-md border bg-surface pl-11 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring",
@@ -215,7 +213,7 @@ export function GlobalSearch() {
           onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Search customer, villa, receipt..."
+          placeholder="Search customer, villa, project..."
           ref={inputRef}
           role="combobox"
           type="text"
@@ -289,7 +287,7 @@ export function GlobalSearch() {
               <div className="px-4 py-8 text-center">
                 <Search aria-hidden="true" className="mx-auto size-6 text-accent" />
                 <p className="mt-2.5 text-sm font-semibold">No matches for &ldquo;{trimmedQuery}&rdquo;</p>
-                <p className="mt-1 text-xs text-muted-foreground">Try a villa number, customer name, or receipt number.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Try a villa name, customer name, or project.</p>
               </div>
             )}
 
@@ -297,7 +295,7 @@ export function GlobalSearch() {
               <div className="px-4 py-8 text-center">
                 <Search aria-hidden="true" className="mx-auto size-6 text-accent" />
                 <p className="mt-2.5 text-sm font-semibold">Search the whole workspace</p>
-                <p className="mt-1 text-xs text-muted-foreground">Projects, villas, customers and receipts. Type at least two characters.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Projects, villas and customers. Type at least two characters.</p>
               </div>
             )}
           </div>
