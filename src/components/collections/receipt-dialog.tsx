@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { Collection, Customer, MockDatabase, Project, Receipt, Villa } from "@/lib/domain/types";
 import { formatLkr } from "@/lib/formatters";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 const formatDate = (value: string) => new Intl.DateTimeFormat("en-LK", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
 
@@ -23,7 +24,7 @@ const formatDate = (value: string) => new Intl.DateTimeFormat("en-LK", { day: "2
  * recalculating it in the client could print a number that disagrees with the ledger.
  */
 export function ReceiptDialog({ collection, customer, database, onClose, project, receipt, villa }: { collection: Collection; customer: Customer; database: MockDatabase; onClose: () => void; project: Project; receipt: Receipt; villa: Villa }) {
-  const villaName = villa.number.replace(/^[A-Z]+-/, "Villa ");
+  const villaName = villaLabel(villa.number);
   const settings = database.settings;
 
   return <Dialog onOpenChange={(open) => !open && onClose()} open><DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-2xl overflow-y-auto rounded-lg p-5 sm:w-[calc(100%-2rem)] sm:p-7" data-printable showClose={false}>

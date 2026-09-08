@@ -6,6 +6,7 @@ import { Resend } from "resend";
 import { db } from "@/lib/db/client";
 import * as schema from "@/lib/db/schema";
 import { renderReminderText } from "@/lib/reminders/tokens";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 /**
  * `CONTACT_FROM_EMAIL` is deliberately not a workspace setting like `replyToEmail` — the
@@ -89,8 +90,8 @@ export async function sendReminderEmail(request: {
 /**
  * Gathers the values a reminder's tokens resolve to.
  *
- * `villaName` mirrors the display convention used across the UI (`RT-001` reads as
- * `Villa 001`); `amount` is the stage's outstanding principal, which is the figure the
+ * `villaName` uses the same label the UI shows, so the villa a customer reads in an email
+ * matches what staff see on screen; `amount` is the stage's outstanding principal, the figure the
  * reminder is actually chasing. A missing stage is not an error — user-initiated
  * reminders carry no `paymentStageId` — so the amount falls back to zero and the
  * reviewer sees it in the approval queue before it goes anywhere.
@@ -117,6 +118,6 @@ async function resolveTokens(
     companyName,
     customerName,
     dueDate: stage?.dueDate ?? "",
-    villaName: villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "your villa",
+    villaName: villaLabel(villa?.number),
   };
 }

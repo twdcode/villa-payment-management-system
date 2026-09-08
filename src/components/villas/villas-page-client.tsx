@@ -14,6 +14,7 @@ import { villaStatusLabels } from "@/lib/domain/status-labels";
 import { matchesVillaSearch } from "@/lib/domain/villa-search";
 import { formatLkr } from "@/lib/formatters";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 type StatusFilter = "all" | VillaOperationalStatus;
 
@@ -28,10 +29,6 @@ const villaStatusStyles: Record<VillaOperationalStatus, string> = {
 
 function VillaStatusBadge({ status }: { status: VillaOperationalStatus }) {
   return <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${villaStatusStyles[status]}`}>{villaStatusLabels[status]}</span>;
-}
-
-function formattedVillaNumber(number: string) {
-  return number.replace(/^[A-Z]+-/, "");
 }
 
 function VillaTable({ database, rows }: { database: MockDatabase; rows: VillaSummary[] }) {
@@ -51,7 +48,7 @@ function VillaTable({ database, rows }: { database: MockDatabase; rows: VillaSum
               if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
               router.push(href);
             }}>
-              <td className="px-5 py-4"><Link className="block rounded-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={href}>Villa {formattedVillaNumber(villa.number)}<span className="mt-1 block text-sm font-normal text-muted-foreground">{villa.type}</span></Link></td>
+              <td className="px-5 py-4"><Link className="block rounded-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={href}>{villaLabel(villa.number)}<span className="mt-1 block text-sm font-normal text-muted-foreground">{villa.type}</span></Link></td>
               <td className="px-5 py-4 text-sm">{project ? <span className="font-medium">{project.name}</span> : <span className="text-muted-foreground">-</span>}</td>
               <td className="px-5 py-4 text-sm">{customer ? <><span className="font-medium">{customer.fullName}</span><span className="mt-1 block text-muted-foreground">{customer.phone}</span></> : <span className="text-muted-foreground">-</span>}</td>
               <td className="px-5 py-4 text-sm"><span className="font-medium">{formatLkr(financials.totalValue || villa.value)}</span><span className="mt-1 block text-muted-foreground">Villa value</span></td>

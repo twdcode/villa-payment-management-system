@@ -18,6 +18,7 @@ import { renderReminderText } from "@/lib/reminders/tokens";
 import { createReminderApprovalAction } from "@/lib/actions/reminders";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { errorMessage } from "@/lib/errors";
+import { villaLabel } from "@/lib/domain/villa-label";
 import { useCurrentUser } from "@/components/auth/current-user-provider";
 
 
@@ -51,7 +52,7 @@ export function CollectionRowActions({ database, row }: { database: MockDatabase
   const terms = resolveInterestTerms(database.settings, villa);
   const financials = calculateVillaFinancials(schedules, terms, database.today);
   const nextPaymentDueDate = schedules.filter((schedule) => schedule.principalPaid < schedule.principalAmount).sort((left, right) => left.dueDate.localeCompare(right.dueDate))[0]?.dueDate ?? "Payment due date";
-  const villaName = villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Villa";
+  const villaName = villaLabel(villa?.number) ?? "Villa";
   if (!customer || !villa || !project) return null;
   return <div className="inline-flex justify-end"><ActionMenu label={`Actions for ${villaName}`} trigger={<span className="text-xl leading-none">⋮</span>}>{row.kind === "installment" && <><Button className="w-full justify-start" onClick={() => setDialog("reminder")} variant="ghost"><Bell className="size-4" />Prepare reminder</Button><Button className="w-full justify-start" onClick={() => setDialog("payment")} variant="ghost"><Plus className="size-4" />Record payment</Button></>}{canEdit && collection?.status === "confirmed" && <Button className="w-full justify-start" onClick={() => setDialog("edit")} variant="ghost"><Pencil className="size-4" />Edit collection</Button>}{receipt && <Button className="w-full justify-start" onClick={() => setDialog("receipt")} variant="ghost"><ReceiptIcon className="size-4" />View receipt</Button>}<Button asChild className="w-full justify-start" variant="ghost"><a href={`/projects/${villa.projectId}/villas/${villa.id}`}><Home className="size-4" />View villa</a></Button></ActionMenu>{dialog === "reminder" && <PrepareReminderDialog amount={financials.outstandingPrincipal + financials.interestOutstanding} companyName={database.settings.companyName} customerName={customer.fullName} database={database} dueDate={nextPaymentDueDate} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); toast(message); }} projectName={project.name} villa={villa} villaName={villaName} />}{dialog === "payment" && <RecordPaymentDialog customer={customer} database={database} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); toast(message); }} villa={villa} />}{dialog === "receipt" && receipt && collection && <ReceiptDialog collection={collection} customer={customer} database={database} onClose={() => setDialog(null)} project={project} receipt={receipt} villa={villa} />}{dialog === "edit" && collection && <RecordPaymentDialog customer={customer} database={database} editing={collection} onClose={() => setDialog(null)} onSuccess={(message) => { setDialog(null); toast(message); }} villa={villa} />}</div>;
 }

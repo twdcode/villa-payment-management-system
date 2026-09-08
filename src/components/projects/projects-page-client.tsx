@@ -18,6 +18,7 @@ import { can } from "@/lib/permissions/roles";
 import { deriveProjectSummaries, type ProjectSummary } from "@/lib/projects/project-summary";
 import { createProjectAction, updateProjectAction } from "@/lib/actions/projects";
 import { errorMessage } from "@/lib/errors";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 
 type ProjectFormValues = { name: string; location: string; plannedVillaCount: string; status: ProjectStatus };
@@ -67,7 +68,7 @@ function ProjectCard({ project, editable, onEdit }: { project: ProjectSummary; e
       </dl>
 
       <div className="mt-6 border-t pt-4">
-        {previewVillas.length > 0 ? <ul className="flex flex-wrap gap-2">{previewVillas.map((villa) => <li className="rounded-md border bg-surface px-3 py-2 text-xs font-medium" key={villa.id}>Villa {villa.number.replace(/^[A-Z]+-/, "")}</li>)}</ul> : <p className="text-sm text-muted-foreground">Villa inventory will be added next.</p>}
+        {previewVillas.length > 0 ? <ul className="flex flex-wrap gap-2">{previewVillas.map((villa) => <li className="rounded-md border bg-surface px-3 py-2 text-xs font-medium" key={villa.id}>{villaLabel(villa.number)}</li>)}</ul> : <p className="text-sm text-muted-foreground">Villa inventory will be added next.</p>}
       </div>
     </article>
   );

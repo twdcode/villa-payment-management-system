@@ -20,6 +20,7 @@ import { createCustomerAction, updateCustomerAction, addCustomerNoteAction } fro
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { villasForCustomer } from "@/lib/domain/villa-status";
 import { errorMessage } from "@/lib/errors";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 
 type CustomerDraft = { fullName: string; phone: string; email: string; nicPassport: string; address: string };
@@ -27,7 +28,7 @@ type CustomerDraft = { fullName: string; phone: string; email: string; nicPasspo
 const emptyCustomer: CustomerDraft = { fullName: "", phone: "", email: "", nicPassport: "", address: "" };
 const customerSchema = z.object({ fullName: z.string().trim().min(2, "Customer name must contain at least two characters."), phone: z.string().trim().min(7, "Enter a valid customer phone number."), email: z.email("Enter a valid customer email address."), nicPassport: z.string(), address: z.string() });
 const initials = (name: string) => name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-const displayVilla = (villa: Villa) => villa.number.replace(/^[A-Z]+-/, "Villa ");
+const displayVilla = (villa: Villa) => villaLabel(villa.number);
 
 /**
  * Every status used to render in the same sky-blue pill showing the raw enum value, so

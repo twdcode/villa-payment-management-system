@@ -14,6 +14,7 @@ import { reviewReminderApprovalAction } from "@/lib/actions/reminders";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { errorMessage } from "@/lib/errors";
 import { renderReminderText } from "@/lib/reminders/tokens";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 
 const reviewSchema = z.object({
@@ -45,7 +46,7 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
     companyName: database.settings.companyName,
     customerName: customer?.fullName ?? "Customer",
     dueDate: paymentDue?.dueDate ?? "",
-    villaName: villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Villa",
+    villaName: villaLabel(villa?.number) ?? "Villa",
   };
   const activeTemplates = database.reminderTemplates.filter((template) => template.isActive);
   const [form, setForm] = useState(() => ({ templateId: defaultTemplate?.id ?? "", sendDate: approval.sendDate, subject: renderReminderText(approval.subject ?? defaultTemplate?.subject ?? "", tokens), message: renderReminderText(approval.message ?? defaultTemplate?.message ?? "", tokens), attachmentUrl: approval.attachmentUrl ?? "" }));
@@ -119,7 +120,7 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
   }
 
   const stageLabel = paymentDue?.stage ?? "Payment";
-  const villaName = villa.number.replace(/^[A-Z]+-/, "Villa ");
+  const villaName = villaLabel(villa.number);
   const isOverdue = paymentDue ? paymentStatus(paymentDue, database.today) === "overdue" : false;
 
   return <Dialog onOpenChange={(open) => !open && onClose()} open>

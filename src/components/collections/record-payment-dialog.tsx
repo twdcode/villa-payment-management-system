@@ -15,6 +15,7 @@ import { formatLkr } from "@/lib/formatters";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
 import { isVillaActive } from "@/lib/domain/villa-status";
 import { errorMessage } from "@/lib/errors";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 
 /**
@@ -38,7 +39,7 @@ const paymentSchema = z.object({
   { message: "Enter the bank or cheque reference.", path: ["referenceNumber"] },
 );
 
-const villaName = (villa: Villa) => villa.number.replace(/^[A-Z]+-/, "Villa ");
+const villaName = (villa: Villa) => villaLabel(villa.number);
 
 /**
  * Records a payment, or corrects one when `editing` is supplied (C1 — there is no

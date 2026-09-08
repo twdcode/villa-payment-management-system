@@ -23,6 +23,7 @@ import { buildDashboardSnapshot, type DashboardPaymentStatus } from "@/lib/dashb
 import type { MockDatabase } from "@/lib/domain/types";
 import { formatLkr, formatLkrCompact, numberToWordsLkr } from "@/lib/formatters";
 import { isVillaActive } from "@/lib/domain/villa-status";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 
 const paymentStatusLabels: Record<DashboardPaymentStatus, string> = {
@@ -43,7 +44,6 @@ const paymentStatusClasses: Record<DashboardPaymentStatus, string> = {
 
 const formatDate = (value: string) => new Intl.DateTimeFormat("en-LK", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
 const formatDateTime = (value: string) => new Intl.DateTimeFormat("en-LK", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
-const villaLabel = (number: string) => `Villa ${number.replace(/^[A-Z]+-/, "")}`;
 const initials = (name: string) => name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 
 function ScopeSelect({ label, children, onChange, value }: { label: string; children: React.ReactNode; onChange: (value: string) => void; value: string }) {

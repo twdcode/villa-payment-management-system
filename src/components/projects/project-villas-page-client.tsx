@@ -14,6 +14,7 @@ import { villaStatusLabels } from "@/lib/domain/status-labels";
 import { matchesVillaSearch } from "@/lib/domain/villa-search";
 import { formatLkr } from "@/lib/formatters";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
+import { villaLabel } from "@/lib/domain/villa-label";
 
 
 type VillaRow = { kind: "configured"; summary: VillaSummary } | { kind: "placeholder"; id: string; number: string };
@@ -31,7 +32,14 @@ function VillaStatusBadge({ status }: { status: VillaOperationalStatus }) {
   return <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${villaStatusStyles[status]}`}>{villaStatusLabels[status]}</span>;
 }
 
-function formattedVillaNumber(number: string) {
+/**
+ * The numeric part of a villa number, for matching against generated slot placeholders.
+ *
+ * NOT for display — `villaLabel` does that, and shows the value as stored. This exists
+ * because a project lists "01".."NN" placeholders up to its planned villa count, and a
+ * villa saved as `MB-04` still occupies slot `04`.
+ */
+function villaSlotNumber(number: string) {
   return number.replace(/^[A-Z]+-/, "");
 }
 
@@ -45,7 +53,7 @@ function VillaTable({ projectId, rows }: { projectId: string; rows: VillaRow[] }
         <tbody className="divide-y">
           {rows.map((row) => {
             const villaId = row.kind === "configured" ? row.summary.villa.id : row.id;
-            const number = row.kind === "configured" ? formattedVillaNumber(row.summary.villa.number) : row.number;
+            const number = row.kind === "configured" ? villaLabel(row.summary.villa.number) : `Villa ${row.number}`;
             const villa = row.kind === "configured" ? row.summary.villa : null;
             const customer = row.kind === "configured" ? row.summary.customer : null;
             const financials = row.kind === "configured" ? row.summary.financials : null;
@@ -76,7 +84,7 @@ export function ProjectVillasPageClient({ projectId, database }: { projectId: st
   const rows = useMemo<VillaRow[]>(() => {
     if (!project) return [];
     const configured = deriveVillaSummaries(database, projectId).map((summary) => ({ kind: "configured" as const, summary }));
-    const usedNumbers = new Set(configured.map((item) => formattedVillaNumber(item.summary.villa.number)));
+    const usedNumbers = new Set(configured.map((item) => villaSlotNumber(item.summary.villa.number)));
     const placeholders = Array.from({ length: project.plannedVillaCount ?? 0 }, (_, index) => String(index + 1).padStart(2, "0"))
       .filter((number) => !usedNumbers.has(number))
       .map((number) => ({ kind: "placeholder" as const, id: `draft-${number}`, number }));
@@ -90,7 +98,7 @@ export function ProjectVillasPageClient({ projectId, database }: { projectId: st
     const placeholder = rows.find((row) => row.kind === "placeholder");
     if (placeholder?.kind === "placeholder") return placeholder.number;
     const highestNumber = rows.reduce((highest, row) => {
-      const number = row.kind === "configured" ? Number(formattedVillaNumber(row.summary.villa.number)) : Number(row.number);
+      const number = row.kind === "configured" ? Number(villaSlotNumber(row.summary.villa.number)) : Number(row.number);
       return Number.isFinite(number) ? Math.max(highest, number) : highest;
     }, 0);
     return String(highestNumber + 1).padStart(2, "0");
