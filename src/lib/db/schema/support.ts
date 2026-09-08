@@ -53,12 +53,16 @@ export const reminderRequests = pgTable(
     // Nothing counts as sent without a timestamp — otherwise "have we contacted them?"
     // has no reliable answer.
     check("reminders_sent_has_timestamp", sql`${table.status} <> 'sent' OR ${table.sentAt} IS NOT NULL`),
-    // One LIVE system request per stage per trigger — blocks the cron job from
-    // double-queuing. Scoped to origin = 'system' so a user manually preparing a reminder
-    // is never blocked by an unrelated schedule trigger.
-    uniqueIndex("reminder_requests_one_live_per_stage_trigger")
+    // One system request per stage per trigger, INCLUDING after it is sent. A trigger is a
+    // moment crossed once ("14 days past grace"), not a recurring state, so crossing it
+    // should produce exactly one reminder ever — escalation is what the later triggers are
+    // for. Covering only live rows meant a sent reminder re-queued on the next queue run,
+    // which became every Collections page load once queuing moved off the nightly cron.
+    // Scoped to origin = 'system' so a user manually preparing a reminder is never blocked
+    // by an unrelated schedule trigger.
+    uniqueIndex("reminder_requests_one_per_stage_trigger")
       .on(table.paymentStageId, table.trigger)
-      .where(sql`status IN ('awaiting_approval', 'ready_to_send') AND origin = 'system' AND payment_stage_id IS NOT NULL AND trigger IS NOT NULL`),
+      .where(sql`status IN ('awaiting_approval', 'ready_to_send', 'sent') AND origin = 'system' AND payment_stage_id IS NOT NULL AND trigger IS NOT NULL`),
   ],
 );
 

@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { Input } from "@/components/ui/input";
+import { DEFAULT_PAGE_SIZE, Pagination, usePagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { MockDatabase, VillaOperationalStatus } from "@/lib/domain/types";
 import { villaStatusLabels } from "@/lib/domain/status-labels";
@@ -69,6 +70,7 @@ export function VillasPageClient({ database }: { database: MockDatabase }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [projectId, setProjectId] = useState<string>("all");
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   const rows = useMemo(() => deriveVillaSummaries(database), [database]);
   const visibleRows = useMemo(() => rows.filter((summary) =>
@@ -76,6 +78,7 @@ export function VillasPageClient({ database }: { database: MockDatabase }) {
     (projectId === "all" || summary.villa.projectId === projectId) &&
     matchesVillaSearch(search, summary.villa.number, summary.customer?.fullName),
   ), [rows, search, status, projectId]);
+  const paged = usePagination(visibleRows, pageSize);
 
   return (
     <AppShell active="Villas">
@@ -87,7 +90,7 @@ export function VillasPageClient({ database }: { database: MockDatabase }) {
             <Select onValueChange={setProjectId} value={projectId}><SelectTrigger aria-label="Project" className="h-14 w-full rounded-xl border-accent px-5 text-base font-semibold lg:w-60"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All projects</SelectItem>{database.projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}</SelectContent></Select>
             <Select onValueChange={(next) => setStatus(next as StatusFilter)} value={status}><SelectTrigger aria-label="Villa status" className="h-14 w-full rounded-xl border-accent px-5 text-base font-semibold lg:w-60"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Status</SelectItem>{Object.entries(villaStatusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
           </div>
-          {visibleRows.length === 0 ? <div className="mt-5 grid min-h-64 place-items-center rounded-xl border border-dashed bg-surface px-6 text-center"><div><Eye aria-hidden="true" className="mx-auto size-7 text-accent" /><h2 className="mt-4 font-semibold">No matching villas</h2><p className="mt-2 text-sm text-muted-foreground">Try another search, project or status.</p></div></div> : <div className="mt-5"><VillaTable database={database} rows={visibleRows} /></div>}
+          {visibleRows.length === 0 ? <div className="mt-5 grid min-h-64 place-items-center rounded-xl border border-dashed bg-surface px-6 text-center"><div><Eye aria-hidden="true" className="mx-auto size-7 text-accent" /><h2 className="mt-4 font-semibold">No matching villas</h2><p className="mt-2 text-sm text-muted-foreground">Try another search, project or status.</p></div></div> : <div className="mt-5"><VillaTable database={database} rows={paged.visible} /><Pagination label="villas" onPageChange={paged.setPage} onPageSizeChange={setPageSize} page={paged.page} pageCount={paged.pageCount} pageSize={pageSize} total={visibleRows.length} /></div>}
         </>
       </div>
     </AppShell>

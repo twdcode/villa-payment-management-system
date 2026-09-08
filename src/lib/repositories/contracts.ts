@@ -90,7 +90,14 @@ export type CollectionUpdateInput = Omit<CollectionInput, "idempotencyKey">;
  * attach.
  */
 export type ReminderApprovalInput = Pick<ReminderApproval, "customerId" | "villaId" | "sendDate" | "templateId" | "subject" | "message" | "attachmentUrl">;
-export type ReminderApprovalReviewInput = Pick<ReminderApproval, "sendDate" | "subject" | "message" | "attachmentUrl"> & { action: "draft" | "send" };
+/**
+ * `templateId` is part of the review because the approver may change it.
+ *
+ * The queue attaches a template by TYPE, not by any decision about this customer, so the
+ * Super Admin picks the wording at approval time. Recording which template was actually
+ * used keeps `reminder_logs` honest about what the customer received.
+ */
+export type ReminderApprovalReviewInput = Pick<ReminderApproval, "sendDate" | "subject" | "message" | "attachmentUrl" | "templateId"> & { action: "draft" | "send" };
 export type ReminderTemplateInput = Pick<ReminderTemplate, "name" | "subject" | "message" | "type">;
 export type ApplicationSettingsInput = Pick<WorkspaceSettings, "companyName" | "dateFormat" | "replyToEmail">;
 export type InterestDefaultsInput = Pick<WorkspaceSettings, "defaultChargeLatePaymentInterest" | "defaultInterestTerms">;
@@ -155,7 +162,14 @@ export interface Repository {
    */
   reassignVillaCustomer(villaId: string, input: { customerId?: string; newCustomer?: CustomerInput }): Promise<{ villa: Villa; customer: Customer | null }>;
   getSchedules(villaId?: string): Promise<PaymentSchedule[]>;
-  updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[]): Promise<PaymentSchedule[]>;
+  /**
+   * `waiverReason` is required only when the change removes interest already charged —
+   * extending a stage's grace period is how the company gives a late customer a break, and
+   * writing off money deserves a recorded reason. Ordinary schedule edits pass nothing.
+   */
+  updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[], waiverReason?: string): Promise<PaymentSchedule[]>;
+  /** How much charged interest a proposed grace period would remove, for the confirmation prompt. */
+  previewInterestWaiver(villaId: string, changes: Array<{ scheduleId: string; gracePeriodDays: number }>): Promise<Array<{ scheduleId: string; stage: string; amount: number }>>;
   updateVillaInterestTerms(villaId: string, input: VillaInterestTermsInput): Promise<Villa>;
   addVillaDocument(villaId: string, input: DocumentLinkInput): Promise<void>;
   updateVillaDocument(documentId: string, input: DocumentLinkUpdate): Promise<void>;
@@ -179,6 +193,15 @@ export interface Repository {
   updateCollection(id: string, input: CollectionUpdateInput, reason: string): Promise<CollectionResult>;
   createReminderApproval(input: ReminderApprovalInput): Promise<ReminderApproval>;
   reviewReminderApproval(id: string, input: ReminderApprovalReviewInput): Promise<ReminderApproval>;
+  /**
+   * Queue a reminder request for every schedule trigger crossed but not yet queued.
+   *
+   * Called when the approval queue is opened rather than from a scheduled job. The
+   * function is idempotent and compares dates with `>=`, so it catches up on everything
+   * missed since the last call — which is exactly what made a nightly cron unnecessary
+   * for this step. Queuing only ever creates rows awaiting approval; nothing is sent.
+   */
+  queueDueReminders(): Promise<{ queued: number; skippedNoTemplate: number }>;
   createReminderTemplate(input: ReminderTemplateInput): Promise<ReminderTemplate>;
   updateReminderTemplate(id: string, input: ReminderTemplateInput): Promise<ReminderTemplate>;
   setReminderTemplateActive(id: string, isActive: boolean): Promise<ReminderTemplate>;

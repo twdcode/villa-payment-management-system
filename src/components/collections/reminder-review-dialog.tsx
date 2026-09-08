@@ -6,8 +6,9 @@ import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { MockDatabase, ReminderApproval } from "@/lib/domain/types";
-import { calculateVillaFinancials, paymentStatus, principalOutstanding } from "@/lib/finance/calculations";
+import { calculateVillaFinancials, overdueDays, paymentStatus, principalOutstanding } from "@/lib/finance/calculations";
 import { formatLkr } from "@/lib/formatters";
 import { reviewReminderApprovalAction } from "@/lib/actions/reminders";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
@@ -16,6 +17,7 @@ import { renderReminderText } from "@/lib/reminders/tokens";
 
 
 const reviewSchema = z.object({
+  templateId: z.string().min(1, "Select a reminder template."),
   sendDate: z.string().min(1, "Select a reminder send date."),
   subject: z.string().trim().min(1, "Enter a reminder subject."),
   message: z.string().trim().min(1, "Enter a reminder message."),
@@ -45,7 +47,24 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
     dueDate: paymentDue?.dueDate ?? "",
     villaName: villa?.number.replace(/^[A-Z]+-/, "Villa ") ?? "Villa",
   };
-  const [form, setForm] = useState(() => ({ sendDate: approval.sendDate, subject: renderReminderText(approval.subject ?? defaultTemplate?.subject ?? "", tokens), message: renderReminderText(approval.message ?? defaultTemplate?.message ?? "", tokens), attachmentUrl: approval.attachmentUrl ?? "" }));
+  const activeTemplates = database.reminderTemplates.filter((template) => template.isActive);
+  const [form, setForm] = useState(() => ({ templateId: defaultTemplate?.id ?? "", sendDate: approval.sendDate, subject: renderReminderText(approval.subject ?? defaultTemplate?.subject ?? "", tokens), message: renderReminderText(approval.message ?? defaultTemplate?.message ?? "", tokens), attachmentUrl: approval.attachmentUrl ?? "" }));
+
+  /**
+   * Switching template rewrites the subject and message from the new one.
+   *
+   * The queue attaches a template by TYPE — `try_queue_reminder()` takes whichever
+   * `overdue` template happens to be active — so the one a reminder arrives with is not
+   * a decision anybody made about this customer. Without this the approver's only way to
+   * use a different template was to retype it, so the dropdown that staff already get
+   * when preparing a reminder belongs here too. Any hand-edits are replaced, which is the
+   * point: picking a template means "use this wording".
+   */
+  function selectTemplate(templateId: string) {
+    const template = activeTemplates.find((candidate) => candidate.id === templateId);
+    if (!template) return;
+    setForm((current) => ({ ...current, templateId, subject: renderReminderText(template.subject, tokens), message: renderReminderText(template.message, tokens) }));
+  }
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<"draft" | "send" | null>(null);
   const dateChanged = form.sendDate !== approval.sendDate;
@@ -96,14 +115,20 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
 
       <section className="mt-4 grid overflow-hidden rounded-lg border sm:grid-cols-3">
         <div className="border-b p-4 sm:border-b-0 sm:border-r"><p className="text-xs text-muted-foreground">Customer</p><p className="mt-1 font-semibold">{customer.fullName}</p><p className="mt-1 text-xs text-muted-foreground">{customer.email}</p></div>
-        <div className="border-b p-4 sm:border-b-0 sm:border-r"><p className="text-xs text-muted-foreground">Payment due</p><p className="mt-1 font-semibold">{paymentDue ? formatDate(paymentDue.dueDate) : "No unpaid stage"}</p><p className="mt-1 text-xs text-muted-foreground">{isOverdue ? "Payment is overdue" : "Current payment stage"}</p></div>
+        {/*
+          How late, and which stage — the two facts that decide whether this warrants a
+          gentle nudge or a final notice. Without them the approver is choosing a template
+          blind, which is the whole reason the queue cannot pick one for them.
+        */}
+        <div className="border-b p-4 sm:border-b-0 sm:border-r"><p className="text-xs text-muted-foreground">Payment due</p><p className="mt-1 font-semibold">{paymentDue ? formatDate(paymentDue.dueDate) : "No unpaid stage"}</p><p className={`mt-1 text-xs ${isOverdue ? "font-semibold text-danger" : "text-muted-foreground"}`}>{isOverdue && paymentDue ? `${overdueDays(paymentDue, database.today)} days overdue` : "Not yet overdue"}{paymentDue?.stage ? ` · ${paymentDue.stage}` : ""}</p></div>
         <div className="p-4"><p className="text-xs text-muted-foreground">Total payable</p><p className="mt-1 font-semibold">{formatLkr(totalPayable)}</p><p className="mt-1 text-xs text-muted-foreground">Principal and current interest</p></div>
       </section>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <label className="text-sm font-semibold text-muted-foreground">Reminder template<Select onValueChange={selectTemplate} value={form.templateId}><SelectTrigger className="mt-2"><SelectValue placeholder="Select template" /></SelectTrigger><SelectContent>{activeTemplates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}</SelectContent></Select><span className="mt-1 block text-xs font-normal text-muted-foreground">Changing this replaces the subject and message below.</span></label>
         <label className="text-sm font-semibold text-muted-foreground">Reminder send date<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, sendDate: event.target.value })} type="date" value={form.sendDate} /></label>
-        <div className="rounded-md border bg-surface-subtle p-4"><p className="text-xs text-muted-foreground">Payment due date</p><p className="mt-1 font-semibold">{paymentDue ? formatDate(paymentDue.dueDate) : "No unpaid stage"}</p><p className="mt-1 text-xs text-muted-foreground">Changing the reminder date does not change the payment due date.</p></div>
       </div>
+      <div className="mt-4 rounded-md border bg-surface-subtle p-4"><p className="text-xs text-muted-foreground">Payment due date</p><p className="mt-1 font-semibold">{paymentDue ? formatDate(paymentDue.dueDate) : "No unpaid stage"}</p><p className="mt-1 text-xs text-muted-foreground">Changing the reminder date does not change the payment due date.</p></div>
       {dateChanged && <p className="mt-3 rounded-md bg-warning/15 px-4 py-3 text-sm font-medium text-warning">The send date changed. Save as draft to apply it before sending.</p>}
       <label className="mt-4 block text-sm font-semibold text-muted-foreground">Subject<input className="mt-2 h-12 w-full rounded-md border bg-surface px-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, subject: event.target.value })} value={form.subject} /></label>
       <label className="mt-4 block text-sm font-semibold text-muted-foreground">Message<textarea className="mt-2 min-h-40 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground" onChange={(event) => setForm({ ...form, message: event.target.value })} value={form.message} /></label>

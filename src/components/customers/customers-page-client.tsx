@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Home, Pencil, Plus, X } from "lucide-react";
+import { Check, Home, Lock, Pencil, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -11,8 +11,10 @@ import { AppShell } from "@/components/layout/app-shell";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { DEFAULT_PAGE_SIZE, Pagination, usePagination } from "@/components/ui/pagination";
 import type { Customer, MockDatabase, PaymentSchedule, Villa } from "@/lib/domain/types";
 import { formatLkr } from "@/lib/formatters";
+import { villaStatusLabels } from "@/lib/domain/status-labels";
 import { calculateVillaFinancials } from "@/lib/finance/calculations";
 import { createCustomerAction, updateCustomerAction, addCustomerNoteAction } from "@/lib/actions/customers";
 import { resolveInterestTerms } from "@/lib/domain/interest-terms";
@@ -26,6 +28,18 @@ const emptyCustomer: CustomerDraft = { fullName: "", phone: "", email: "", nicPa
 const customerSchema = z.object({ fullName: z.string().trim().min(2, "Customer name must contain at least two characters."), phone: z.string().trim().min(7, "Enter a valid customer phone number."), email: z.email("Enter a valid customer email address."), nicPassport: z.string(), address: z.string() });
 const initials = (name: string) => name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 const displayVilla = (villa: Villa) => villa.number.replace(/^[A-Z]+-/, "Villa ");
+
+/**
+ * Every status used to render in the same sky-blue pill showing the raw enum value, so
+ * "available", "sold" and "cancelled" were visually identical and read as database text.
+ */
+const villaStatusBadge: Record<Villa["operationalStatus"], string> = {
+  available: "bg-surface-muted text-muted-foreground",
+  reserved: "bg-sky-100 text-sky-700",
+  scheduled: "bg-sky-100 text-sky-700",
+  sold: "bg-success/10 text-success",
+  cancelled: "bg-danger/10 text-danger",
+};
 const formatDate = (date: string) => date ? new Intl.DateTimeFormat("en-LK", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${date}T00:00:00`)) : "Due date pending";
 
 function CustomerFormDialog({ customer, onOpenChange, onSaved, open }: { customer?: Customer; onOpenChange: (open: boolean) => void; onSaved: () => void; open: boolean }) {
@@ -65,9 +79,75 @@ function CustomerNotes({ customer, database, onSaved }: { customer: Customer; da
   return <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]"><section className="rounded-lg border bg-surface p-5 sm:p-7"><h2 className="text-lg font-semibold">Customer notes</h2><div className="mt-6 space-y-6">{notes.length ? notes.map((note) => <article className="border-b pb-6 last:border-0 last:pb-0" key={note.id}><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-full bg-surface-muted text-sm font-bold text-primary">{initials(users.get(note.authorId)?.name ?? "Juniper")}</span><div><p className="font-semibold">{users.get(note.authorId)?.name ?? "Juniper user"}</p><p className="text-sm text-muted-foreground">{new Intl.DateTimeFormat("en-LK", { dateStyle: "medium", timeStyle: "short" }).format(new Date(note.createdAt))}</p></div></div><p className="mt-4 text-sm leading-6 text-muted-foreground">{note.content}</p></article>) : <p className="text-sm text-muted-foreground">No customer notes yet.</p>}</div></section><aside className="h-fit rounded-lg border bg-surface p-5 sm:p-6"><h2 className="text-lg font-semibold">Add customer note</h2><p className="mt-1 text-sm text-muted-foreground">Visible only on {customer.fullName}</p><form className="mt-5" onSubmit={save}><textarea className="min-h-40 w-full rounded-md border bg-surface px-3 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setContent(event.target.value)} placeholder="Write a customer update, decision or follow-up..." value={content} /><Button className="mt-4 w-full" disabled={!content.trim() || saving} type="submit"><Plus className="size-4" />{saving ? "Saving..." : "Save note"}</Button></form></aside></div>;
 }
 
+/**
+ * Where the customer is in their payment schedule, as a horizontal timeline.
+ *
+ * Each stage is a marker on a connecting line: solid behind the customer's position,
+ * dashed ahead of it, so how far through the plan they are reads at a glance rather than
+ * having to be counted down a list.
+ *
+ * The label used to be `completed ? "Completed" : index === 0 ? "Current" : "Upcoming"`,
+ * which had three problems: a partly-paid stage was indistinguishable from an untouched
+ * one, an overdue stage read "Upcoming" unless it happened to be first, and "Current"
+ * stayed pinned to stage 1 even after it was settled. The state now comes from the
+ * stage's own status and balance, so it says what is actually true of that installment.
+ */
 function PaymentScheduleProgress({ schedules }: { schedules: Array<PaymentSchedule & { villa: Villa }> }) {
-  return <section className="mt-6 rounded-lg border bg-surface p-5 sm:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Payment schedule progress</h2><span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-semibold text-muted-foreground">{schedules.length} {schedules.length === 1 ? "stage" : "stages"}</span></div>{schedules.length ? <ol className="mt-6 grid grid-cols-1 border-t sm:grid-cols-2 sm:gap-x-6 lg:grid-cols-3 2xl:grid-cols-4">{schedules.map((schedule, index) => { const completed = schedule.principalPaid >= schedule.principalAmount; const current = !completed && (schedule.status === "due" || schedule.status === "overdue"); const label = completed ? "Completed" : index === 0 ? "Current" : "Upcoming"; return <li className="relative flex min-w-0 gap-4 border-b py-5" key={schedule.id}><div className="relative flex w-10 shrink-0 justify-center"><span aria-hidden="true" className={`absolute bottom-[-1.25rem] top-10 w-px bg-border sm:hidden ${index === schedules.length - 1 ? "hidden" : ""}`} /><span className={`relative z-10 grid size-10 shrink-0 place-items-center rounded-full border ${completed ? "border-success bg-success text-white" : current ? "border-primary bg-primary text-white" : "bg-surface-muted text-muted-foreground"}`}>{completed ? <Check className="size-5" /> : <Home className="size-4" />}</span></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Stage {String(index + 1).padStart(2, "0")}</p><span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${completed ? "bg-success/10 text-success" : current ? "bg-primary text-primary-foreground" : "bg-surface-muted text-muted-foreground"}`}>{label}</span></div><p className="mt-2 break-words text-sm font-semibold leading-5">{schedule.stage}</p><p className="mt-1 text-sm text-muted-foreground">{formatDate(schedule.dueDate)}</p></div></li>; })}</ol> : <p className="mt-6 text-sm text-muted-foreground">No payment stages are available yet.</p>}</section>;
+  // The earliest unsettled stage is the one being collected now — everything after it is
+  // genuinely upcoming, whatever its index.
+  const currentIndex = schedules.findIndex((schedule) => schedule.principalPaid < schedule.principalAmount);
+
+  return <section className="mt-6 rounded-lg border bg-surface p-5 sm:p-7">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-lg font-semibold">Payment schedule progress</h2>
+      <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-semibold text-muted-foreground">{schedules.length} {schedules.length === 1 ? "stage" : "stages"}</span>
+    </div>
+    {schedules.length
+      ? <div className="mt-8 overflow-x-auto pb-2">
+          <ol className="flex w-full min-w-max items-start gap-0">{schedules.map((schedule, index) => {
+            const completed = schedule.principalPaid >= schedule.principalAmount;
+            const partiallyPaid = !completed && schedule.principalPaid > 0;
+            const overdue = !completed && schedule.status === "overdue";
+            const current = !completed && index === currentIndex;
+            const label = completed ? "Completed" : overdue ? "Overdue" : partiallyPaid ? "Partly paid" : current ? "Current" : "Upcoming";
+            const reached = completed || current || partiallyPaid || overdue;
+            const badgeClass = completed ? "bg-success/10 text-success"
+              : overdue ? "bg-danger/10 text-danger"
+              : partiallyPaid ? "bg-warning/15 text-warning"
+              : current ? "bg-primary/10 text-primary"
+              : "bg-sky-50 text-sky-700";
+            const markerClass = completed ? "border-success bg-success text-white"
+              : overdue ? "border-danger bg-danger text-white"
+              : current || partiallyPaid ? "border-primary bg-primary text-white"
+              : "border-border bg-surface-muted text-muted-foreground";
+            // The line to the LEFT of this marker: solid once the customer has reached
+            // this point, dashed for the part of the plan still ahead of them.
+            const connector = index === 0 ? null
+              : <span aria-hidden="true" className={`mt-5 h-px min-w-8 flex-1 ${reached ? "bg-foreground" : "border-t border-dashed border-border"}`} />;
+            return <li className={`flex min-w-0 items-start ${index === 0 ? "" : "flex-1"}`} key={schedule.id}>
+              {connector}
+              <div className="flex w-32 shrink-0 flex-col items-center px-2 text-center sm:w-36">
+                <span className={`grid size-10 place-items-center rounded-full border ${markerClass}`}>
+                  {completed ? <Check className="size-5" /> : reached ? <Home className="size-4" /> : <Lock className="size-4" />}
+                </span>
+                <p className={`mt-3 break-words text-sm font-semibold leading-5 ${reached ? "" : "text-muted-foreground"}`}>{schedule.stage}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{completed ? formatDate(schedule.dueDate) : `Due ${formatDate(schedule.dueDate)}`}</p>
+                <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClass}`}>{label}</span>
+                {/*
+                  A partial payment is the case the old view hid completely: money HAS
+                  arrived against this stage, and staff settling the rest need to see how
+                  much rather than re-deriving it from the Collections table.
+                */}
+                {partiallyPaid && <p className="mt-2 text-xs font-medium text-muted-foreground">{formatLkr(schedule.principalPaid)} paid<br /><span className="text-danger">{formatLkr(schedule.principalAmount - schedule.principalPaid)} due</span></p>}
+              </div>
+            </li>;
+          })}</ol>
+        </div>
+      : <p className="mt-6 text-sm text-muted-foreground">No payment stages are available yet.</p>}
+  </section>;
 }
+
+
 
 /**
  * `customer` is the full record (identity document, address) for the profile being viewed,
@@ -86,14 +166,16 @@ export function CustomersPageClient({ customer, customerId, database }: { custom
 function CustomersPageBody({ customer: fullCustomer, customerId, database }: { customer?: Customer | null; customerId?: string; database: MockDatabase }) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false); const [editOpen, setEditOpen] = useState(false); const [collectionOpen, setCollectionOpen] = useState(false); const [tab, setTab] = useState<"overview" | "note">("overview");
+  const [customersPageSize, setCustomersPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const customersPage = usePagination(database.customers, customersPageSize);
   const { toast } = useToast();
   const refresh = (message?: string) => { router.refresh(); if (message) toast(message); };
   // Prefer the full record the page fetched; fall back to the summary for the list view.
   const customer = fullCustomer ?? database.customers.find((candidate) => candidate.id === customerId) ?? null;
   const customerVillas = useMemo(() => customer ? villasForCustomer(database.villas, customer.id) : [], [database, customer]);
   if (customerId && !customer) return <p className="text-sm text-muted-foreground">Customer not found.</p>;
-  if (!customer) return <><div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-semibold">Customers</h1><p className="mt-2 text-muted-foreground">Understand every customer relationship at a glance.</p></div><Button onClick={() => setCreateOpen(true)} variant="outline">New customer <Plus className="size-4" /></Button></div><div className="mt-8 grid gap-4 xl:grid-cols-2">{database.customers.map((candidate) => <CustomerCard customer={candidate} database={database} key={candidate.id} />)}</div><CustomerFormDialog key={`create-${createOpen}`} onOpenChange={setCreateOpen} onSaved={() => void refresh("Customer created successfully.")} open={createOpen} /></>;
+  if (!customer) return <><div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-semibold">Customers</h1><p className="mt-2 text-muted-foreground">Understand every customer relationship at a glance.</p></div><Button onClick={() => setCreateOpen(true)} variant="outline">New customer <Plus className="size-4" /></Button></div><div className="mt-8 grid gap-4 xl:grid-cols-2">{customersPage.visible.map((candidate) => <CustomerCard customer={candidate} database={database} key={candidate.id} />)}</div><Pagination label="customers" onPageChange={customersPage.setPage} onPageSizeChange={setCustomersPageSize} page={customersPage.page} pageCount={customersPage.pageCount} pageSize={customersPageSize} total={database.customers.length} /><CustomerFormDialog key={`create-${createOpen}`} onOpenChange={setCreateOpen} onSaved={() => void refresh("Customer created successfully.")} open={createOpen} /></>;
   const totals = customerVillas.reduce((sum, villa) => { const current = financials(database, villa); return { value: sum.value + current.value, collected: sum.collected + current.collected, outstanding: sum.outstanding + current.outstanding, overdue: sum.overdue + current.overdue }; }, { value: 0, collected: 0, outstanding: 0, overdue: 0 });
   const progressSchedules = customerVillas.flatMap((villa) => database.schedules.filter((schedule) => schedule.villaId === villa.id).map((schedule) => ({ ...schedule, villa }))).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  return <><div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between"><Link className="text-sm font-semibold hover:text-muted-foreground" href="/customers">← All customers</Link><div className="flex flex-wrap gap-3"><Button disabled={!customerVillas.length} onClick={() => setCollectionOpen(true)} variant="outline">Add collection <Plus className="size-4" /></Button><Button onClick={() => setEditOpen(true)} variant="outline">Edit profile <Pencil className="size-4" /></Button></div></div><section className="mt-6 flex items-center gap-5 rounded-lg bg-primary px-6 py-7 text-primary-foreground"><span className="grid size-20 shrink-0 place-items-center rounded-full bg-surface-muted text-xl font-bold text-primary">{initials(customer.fullName)}</span><div className="min-w-0"><h1 className="truncate text-2xl font-semibold">{customer.fullName}</h1><p className="mt-1 break-words text-sm text-primary-foreground/80">{customer.phone} | {customer.email}</p>{(fullCustomer?.nicPassport || fullCustomer?.address) && <p className="mt-1 text-sm text-primary-foreground/70">{[fullCustomer.nicPassport, fullCustomer.address].filter(Boolean).join(" · ")}</p>}</div></section><div className="mt-6 flex gap-3"><Button onClick={() => setTab("overview")} size="sm" variant={tab === "overview" ? "default" : "outline"}>Overview</Button><Button onClick={() => setTab("note")} size="sm" variant={tab === "note" ? "default" : "outline"}>Note</Button></div>{tab === "note" ? <div className="mt-6"><CustomerNotes customer={customer} database={database} onSaved={() => void refresh("Customer note saved successfully.")} /></div> : <><div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[["Total property value", totals.value, ""], ["Collected", totals.collected, ""], ["Outstanding", totals.outstanding, ""], ["Overdue", totals.overdue, "text-danger"]].map(([label, value, style]) => <div className="rounded-lg border bg-surface p-5" key={String(label)}><p className="text-sm text-muted-foreground">{label}</p><p className={`mt-3 text-xl font-semibold ${style}`}>{formatLkr(Number(value))}</p></div>)}</div><PaymentScheduleProgress schedules={progressSchedules} /><section className="mt-6 grid gap-4 lg:grid-cols-2">{customerVillas.map((villa) => { const current = financials(database, villa); const next = database.schedules.filter((schedule) => schedule.villaId === villa.id && schedule.principalPaid < schedule.principalAmount).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]; const project = database.projects.find((candidate) => candidate.id === villa.projectId); return <article className="rounded-lg border bg-surface p-5" key={villa.id}><div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{displayVilla(villa)}</h2><p className="mt-1 text-sm text-muted-foreground">{project?.name}</p></div><span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-700">{villa.operationalStatus}</span></div><dl className="mt-5 divide-y text-sm"><div className="flex justify-between py-3"><dt className="text-muted-foreground">Villa value</dt><dd className="font-semibold">{formatLkr(current.value)}</dd></div><div className="flex justify-between py-3"><dt className="text-muted-foreground">Collected</dt><dd className="font-semibold">{formatLkr(current.collected)}</dd></div><div className="flex justify-between py-3"><dt className="text-muted-foreground">Outstanding</dt><dd className="font-semibold">{formatLkr(current.outstanding)}</dd></div><div className="flex justify-between py-3"><dt className="text-muted-foreground">Next payment</dt><dd className="font-semibold">{next ? formatDate(next.dueDate) : "Complete"}</dd></div></dl></article>; })}</section></>}<CustomerFormDialog customer={fullCustomer ?? undefined} key={`edit-${customer.id}-${editOpen}`} onOpenChange={setEditOpen} onSaved={() => void refresh("Customer profile updated successfully.")} open={editOpen} />{collectionOpen && customerVillas[0] && <RecordPaymentDialog customer={customer} database={database} key={`collection-${customer.id}-${collectionOpen}`} onClose={() => setCollectionOpen(false)} onSuccess={(message) => { setCollectionOpen(false); void refresh(message); }} villa={customerVillas[0]} />}</>;
+  return <><div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between"><Link className="text-sm font-semibold hover:text-muted-foreground" href="/customers">← All customers</Link><div className="flex flex-wrap gap-3"><Button disabled={!customerVillas.length} onClick={() => setCollectionOpen(true)} variant="outline">Add collection <Plus className="size-4" /></Button><Button onClick={() => setEditOpen(true)} variant="outline">Edit profile <Pencil className="size-4" /></Button></div></div><section className="mt-6 flex items-center gap-5 rounded-lg bg-primary px-6 py-7 text-primary-foreground"><span className="grid size-20 shrink-0 place-items-center rounded-full bg-surface-muted text-xl font-bold text-primary">{initials(customer.fullName)}</span><div className="min-w-0"><h1 className="truncate text-2xl font-semibold">{customer.fullName}</h1><p className="mt-1 break-words text-sm text-primary-foreground/80">{customer.phone} | {customer.email}</p>{(fullCustomer?.nicPassport || fullCustomer?.address) && <p className="mt-1 text-sm text-primary-foreground/70">{[fullCustomer.nicPassport, fullCustomer.address].filter(Boolean).join(" · ")}</p>}</div></section><div className="mt-6 flex gap-3"><Button onClick={() => setTab("overview")} size="sm" variant={tab === "overview" ? "default" : "outline"}>Overview</Button><Button onClick={() => setTab("note")} size="sm" variant={tab === "note" ? "default" : "outline"}>Note</Button></div>{tab === "note" ? <div className="mt-6"><CustomerNotes customer={customer} database={database} onSaved={() => void refresh("Customer note saved successfully.")} /></div> : <><div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[["Total property value", totals.value, ""], ["Collected", totals.collected, ""], ["Outstanding", totals.outstanding, ""], ["Overdue", totals.overdue, "text-danger"]].map(([label, value, style]) => <div className="rounded-lg border bg-surface p-5" key={String(label)}><p className="text-sm text-muted-foreground">{label}</p><p className={`mt-3 text-xl font-semibold ${style}`}>{formatLkr(Number(value))}</p></div>)}</div><PaymentScheduleProgress schedules={progressSchedules} /><section className="mt-6 grid gap-4 lg:grid-cols-2">{customerVillas.map((villa) => { const current = financials(database, villa); const next = database.schedules.filter((schedule) => schedule.villaId === villa.id && schedule.principalPaid < schedule.principalAmount).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]; const project = database.projects.find((candidate) => candidate.id === villa.projectId); return <article className="rounded-lg border bg-surface p-5" key={villa.id}><div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{displayVilla(villa)}</h2><p className="mt-1 text-sm text-muted-foreground">{project?.name}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${villaStatusBadge[villa.operationalStatus]}`}>{villaStatusLabels[villa.operationalStatus]}</span></div><dl className="mt-5 divide-y text-sm"><div className="flex justify-between py-3"><dt className="text-muted-foreground">Villa value</dt><dd className="font-semibold">{formatLkr(current.value)}</dd></div><div className="flex justify-between py-3"><dt className="text-muted-foreground">Collected</dt><dd className="font-semibold">{formatLkr(current.collected)}</dd></div><div className="flex justify-between py-3"><dt className="text-muted-foreground">Outstanding</dt><dd className="font-semibold">{formatLkr(current.outstanding)}</dd></div><div className="flex justify-between py-3"><dt className="text-muted-foreground">Next payment</dt><dd className="font-semibold">{next ? formatDate(next.dueDate) : "Complete"}</dd></div></dl></article>; })}</section></>}<CustomerFormDialog customer={fullCustomer ?? undefined} key={`edit-${customer.id}-${editOpen}`} onOpenChange={setEditOpen} onSaved={() => void refresh("Customer profile updated successfully.")} open={editOpen} />{collectionOpen && customerVillas[0] && <RecordPaymentDialog customer={customer} database={database} key={`collection-${customer.id}-${collectionOpen}`} onClose={() => setCollectionOpen(false)} onSuccess={(message) => { setCollectionOpen(false); void refresh(message); }} villa={customerVillas[0]} />}</>;
 }

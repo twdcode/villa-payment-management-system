@@ -53,6 +53,11 @@ function validateDocumentLinkInput(input: DocumentLinkInput) {
  * a well-shaped impossible date (`2026-02-31`) and the garbled values a native date input
  * can produce when typed into quickly (`90120-02-06`).
  */
+/** `LKR 19,500.00` for the villa note recording a waiver — the audit trail names an exact figure. */
+function formatWaivedAmount(value: number) {
+  return `LKR ${value.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function isValidDateString(value: string | undefined | null): boolean {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
@@ -884,7 +889,26 @@ export class SupabaseRepository implements Repository {
     return rows.map(toPaymentSchedule);
   }
 
-  async updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[]): Promise<PaymentSchedule[]> {
+  async previewInterestWaiver(villaId: string, changes: Array<{ scheduleId: string; gracePeriodDays: number }>): Promise<Array<{ scheduleId: string; stage: string; amount: number }>> {
+    if (!changes.length) return [];
+    const today = await getWorkspaceToday();
+    const stages = await db.select({ id: schema.paymentStages.id, stageName: schema.paymentStages.stageName })
+      .from(schema.paymentStages).where(eq(schema.paymentStages.villaId, villaId));
+    const nameById = new Map(stages.map((row) => [row.id, row.stageName]));
+
+    const results: Array<{ scheduleId: string; stage: string; amount: number }> = [];
+    for (const change of changes) {
+      if (!nameById.has(change.scheduleId)) continue;
+      const [row] = await queryView<{ amount: string }>(
+        sql`SELECT public.preview_stage_interest_waiver(${change.scheduleId}::uuid, ${change.gracePeriodDays}, ${today}::date) AS amount`,
+      );
+      const amount = Number(row?.amount ?? 0);
+      if (amount > 0) results.push({ scheduleId: change.scheduleId, stage: nameById.get(change.scheduleId)!, amount });
+    }
+    return results;
+  }
+
+  async updatePaymentSchedule(villaId: string, schedules: PaymentScheduleUpdateInput[], waiverReason?: string): Promise<PaymentSchedule[]> {
     if (!schedules.length) throw new Error("Add at least one payment stage.");
     if (schedules.some((schedule) => !schedule.stage.trim() || schedule.principalAmount < 0 || schedule.gracePeriodDays < 0)) {
       throw new Error("Each stage needs a name, non-negative amount, and valid grace period.");
@@ -958,7 +982,39 @@ export class SupabaseRepository implements Repository {
         };
         updated.push({ ...next, status: paymentStatus(next, today) });
       }
-      await writeAuditLog(tx, { tableName: "payment_stages", recordId: villaId, action: "update", before: existing, after: updated, actorId: currentUser.id });
+      // Re-derive interest for every stage whose grace period changed, and record what that
+      // removed. Extending grace is the company's way of giving a late customer a break;
+      // without this the stage keeps its old `interest_charged` and the gesture does
+      // nothing. `rederive_stage_interest` never drops below interest already paid.
+      const waived: Array<{ stage: string; amount: number }> = [];
+      for (const schedule of schedules) {
+        if (!schedule.id) continue;
+        const current = existingById.get(schedule.id);
+        if (!current || current.gracePeriodDays === schedule.gracePeriodDays) continue;
+        const before = Number(current.interestCharged ?? 0);
+        const [row] = await tx.execute<{ charged: string }>(
+          sql`SELECT public.rederive_stage_interest(${schedule.id}::uuid, ${today}::date) AS charged`,
+        );
+        const after = Number(row?.charged ?? 0);
+        if (before - after > 0) waived.push({ stage: current.stageName, amount: before - after });
+      }
+
+      // Writing off money that was already charged needs a reason on the record, the same
+      // way a collection correction does. Ordinary schedule edits waive nothing and are
+      // unaffected.
+      if (waived.length && !waiverReason?.trim()) {
+        throw new Error("Enter a reason for removing interest already charged.");
+      }
+
+      await writeAuditLog(tx, { tableName: "payment_stages", recordId: villaId, action: "update", before: existing, after: updated, actorId: currentUser.id, ...(waived.length ? { reason: waiverReason!.trim() } : {}) });
+      if (waived.length) {
+        await tx.insert(schema.notes).values({
+          scope: "villa",
+          villaId,
+          content: `Interest waived: ${waived.map((entry) => `${entry.stage} ${formatWaivedAmount(entry.amount)}`).join(", ")}. Reason: ${waiverReason!.trim()}`,
+          authorId: currentUser.id,
+        });
+      }
       return updated;
     });
 
@@ -1289,6 +1345,13 @@ export class SupabaseRepository implements Repository {
     return toReminderApproval(inserted);
   }
 
+  async queueDueReminders(): Promise<{ queued: number; skippedNoTemplate: number }> {
+    const [row] = await queryView<{ queuedCount: number; skippedNoTemplate: number }>(
+      sql`SELECT * FROM public.queue_due_reminders()`,
+    );
+    return { queued: Number(row?.queuedCount ?? 0), skippedNoTemplate: Number(row?.skippedNoTemplate ?? 0) };
+  }
+
   async reviewReminderApproval(id: string, input: ReminderApprovalReviewInput): Promise<ReminderApproval> {
     const subject = input.subject?.trim();
     const message = input.message?.trim();
@@ -1311,8 +1374,20 @@ export class SupabaseRepository implements Repository {
       throw new Error("This reminder is no longer available for review.");
     }
 
+    // Only an ACTIVE template may be selected: a disabled or deleted one is not something
+    // the workspace intends to send, and the queue itself only ever picks from active
+    // templates. Falls back to whatever the request already carried when none is supplied.
+    let templateId = existing.request.templateId;
+    if (input.templateId && input.templateId !== templateId) {
+      const [template] = await db.select({ id: schema.reminderTemplates.id }).from(schema.reminderTemplates)
+        .where(and(eq(schema.reminderTemplates.id, input.templateId), eq(schema.reminderTemplates.isActive, true), isNull(schema.reminderTemplates.deletedAt)));
+      if (!template) throw new Error("Select an active reminder template.");
+      templateId = template.id;
+    }
+
     const [row] = await db.update(schema.reminderRequests).set({
       sendDate: input.sendDate,
+      templateId,
       subject,
       message,
       attachmentUrl: input.attachmentUrl?.trim() || undefined,

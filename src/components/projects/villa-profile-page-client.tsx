@@ -22,7 +22,7 @@ import { interestOutstanding, isPaymentScheduleReady, principalOutstanding, tota
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
 import { can } from "@/lib/permissions/roles";
 import type { PaymentScheduleUpdateInput } from "@/lib/repositories/contracts";
-import { updatePaymentScheduleAction, updateVillaInterestTermsAction, cancelVillaAction, deleteVillaPermanentlyAction, addVillaNoteAction, addVillaDocumentAction, updateVillaDocumentAction, deleteVillaDocumentAction, updateVillaAction, reassignVillaCustomerAction } from "@/lib/actions/villas";
+import { updatePaymentScheduleAction, previewInterestWaiverAction, updateVillaInterestTermsAction, cancelVillaAction, deleteVillaPermanentlyAction, addVillaNoteAction, addVillaDocumentAction, updateVillaDocumentAction, deleteVillaDocumentAction, updateVillaAction, reassignVillaCustomerAction } from "@/lib/actions/villas";
 import { resolveInterestTerms, storedInterestTerms } from "@/lib/domain/interest-terms";
 import { errorMessage } from "@/lib/errors";
 import { percentToRate, rateToPercent } from "@/lib/domain/rate";
@@ -67,6 +67,7 @@ function PaymentScheduleDialog({ onOpenChange, onSaved, open, schedules, villa }
   const [drafts, setDrafts] = useState<ScheduleDraft[]>(() => scheduleDrafts(schedules, villa.interestTerms?.gracePeriodDays ?? 30));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [waiver, setWaiver] = useState<{ entries: Array<{ scheduleId: string; stage: string; amount: number }>; reason: string } | null>(null);
   const total = drafts.reduce((sum, draft) => sum + draft.principalAmount, 0);
   const difference = villa.value - total;
 
@@ -74,19 +75,56 @@ function PaymentScheduleDialog({ onOpenChange, onSaved, open, schedules, villa }
     setDrafts((current) => current.map((draft) => draft.clientId === clientId ? { ...draft, ...patch } : draft));
   }
 
-  async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const payload = () => drafts.map((draft) => ({ id: draft.id, stage: draft.stage, deliverables: draft.deliverables, dueDate: draft.dueDate, principalAmount: draft.principalAmount, gracePeriodDays: draft.gracePeriodDays }));
+
+  async function commit(reason?: string) {
     setError("");
     setSaving(true);
     try {
-      await updatePaymentScheduleAction(villa.id, drafts.map((draft) => ({ id: draft.id, stage: draft.stage, deliverables: draft.deliverables, dueDate: draft.dueDate, principalAmount: draft.principalAmount, gracePeriodDays: draft.gracePeriodDays })));
+      await updatePaymentScheduleAction(villa.id, payload(), reason);
+      setWaiver(null);
       onOpenChange(false);
       onSaved();
-    } catch (reason) {
-      setError(errorMessage(reason, "Unable to update payment schedule."));
+    } catch (failure) {
+      setError(errorMessage(failure, "Unable to update payment schedule."));
     } finally {
       setSaving(false);
     }
+  }
+
+  /**
+   * Checks whether saving would wipe out interest already charged, and asks first.
+   *
+   * Extending a stage's grace period is deliberate — it is how the company gives a late
+   * customer a break — but the same field is edited during ordinary schedule maintenance,
+   * where silently writing off money would be a nasty surprise. The prompt only appears
+   * when real money is at stake; edits that waive nothing save straight through.
+   */
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    const changed = drafts.flatMap((draft) => {
+      const current = schedules.find((schedule) => schedule.id === draft.id);
+      return draft.id && current && current.gracePeriodDays !== draft.gracePeriodDays
+        ? [{ scheduleId: draft.id, gracePeriodDays: draft.gracePeriodDays }]
+        : [];
+    });
+    if (changed.length) {
+      setSaving(true);
+      try {
+        const affected = await previewInterestWaiverAction(villa.id, changed);
+        if (affected.length) {
+          setWaiver({ entries: affected, reason: "" });
+          return;
+        }
+      } catch (failure) {
+        setError(errorMessage(failure, "Unable to check the interest impact of this change."));
+        return;
+      } finally {
+        setSaving(false);
+      }
+    }
+    await commit();
   }
 
   return <Dialog onOpenChange={onOpenChange} open={open}>
@@ -94,7 +132,25 @@ function PaymentScheduleDialog({ onOpenChange, onSaved, open, schedules, villa }
       <div className="shrink-0 border-b bg-surface px-5 py-5 sm:px-7 sm:py-6"><div className="flex items-start justify-between gap-5"><div><span className="grid size-11 place-items-center rounded-md bg-surface-muted"><CalendarDays className="size-5 text-primary" /></span><DialogTitle className="mt-4 text-xl font-medium sm:text-2xl">Update payment schedule</DialogTitle><DialogDescription className="mt-1 text-sm text-muted-foreground">Villa {villa.number.replace(/^[A-Z]+-/, "")} · Edit stages, due dates, amounts and construction deliverables.</DialogDescription></div><Button aria-label="Close payment schedule editor" className="shrink-0" onClick={() => onOpenChange(false)} size="icon" type="button" variant="ghost"><X className="size-5" /></Button></div>
         <dl className="mt-5 grid gap-3 rounded-lg bg-surface-subtle p-4 sm:grid-cols-3"><div><dt className="text-xs text-muted-foreground">Villa value</dt><dd className="mt-1 text-sm font-semibold">{formatLkr(villa.value)}</dd></div><div><dt className="text-xs text-muted-foreground">Schedule total</dt><dd className="mt-1 text-sm font-semibold">{formatLkr(total)}</dd></div><div><dt className="text-xs text-muted-foreground">Difference</dt><dd className={`mt-1 text-sm font-semibold ${difference === 0 ? "" : "text-danger"}`}>{formatLkr(Math.abs(difference))}{difference === 0 ? "" : difference > 0 ? " remaining" : " over"}</dd></div></dl>
       </div>
-      <form className="flex min-h-0 flex-1 flex-col" onSubmit={save}><div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7"><div className="space-y-4">{drafts.map((draft, index) => <section className="rounded-lg border bg-surface p-4 sm:p-5" key={draft.clientId}><div className="flex items-center justify-between gap-4"><h3 className="text-sm font-semibold">{index + 1}. {draft.stage || "Payment stage"}</h3><Button className="h-auto px-0 py-1 text-xs text-danger hover:bg-transparent hover:text-danger" disabled={draft.principalPaid > 0 || drafts.length === 1} onClick={() => setDrafts((current) => current.filter((candidate) => candidate.clientId !== draft.clientId))} type="button" variant="ghost">Remove</Button></div><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><label className="text-sm font-semibold text-muted-foreground">Stage name<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { stage: event.target.value })} value={draft.stage} /></label><label className="text-sm font-semibold text-muted-foreground">Due date<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { dueDate: event.target.value })} type="date" value={draft.dueDate} /></label><label className="text-sm font-semibold text-muted-foreground">Amount<CurrencyInput className="h-11" onChange={(next) => updateDraft(draft.clientId, { principalAmount: Number(next) || 0 })} value={draft.principalAmount ? String(draft.principalAmount) : ""} /></label><div className="text-sm font-semibold text-muted-foreground">Paid to date<div className="mt-2 flex h-11 items-center rounded-md border bg-surface-muted px-3 text-sm text-muted-foreground">{formatLkr(draft.principalPaid)}</div></div></div><label className="mt-4 block text-sm font-semibold text-muted-foreground">Stage deliverables<textarea className="mt-2 min-h-24 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { deliverables: event.target.value })} placeholder="Construction work or documents delivered at this stage..." value={draft.deliverables ?? ""} /></label></section>)}</div><Button className="mt-5 w-full border-dashed sm:w-auto" onClick={() => setDrafts((current) => [...current, { clientId: crypto.randomUUID(), stage: "", deliverables: "", dueDate: "", principalAmount: 0, gracePeriodDays: villa.interestTerms?.gracePeriodDays ?? 30, principalPaid: 0 }])} type="button" variant="outline"><Plus className="size-4" />Add payment stage</Button></div><footer className="shrink-0 border-t bg-surface px-5 py-4 sm:px-7"><p className="mb-3 text-sm text-muted-foreground">Incomplete schedules can be saved and finished later. They cannot be used for collections until every stage is complete.</p>{error && <p className="mb-3 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger" role="alert">{error}</p>}<div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button onClick={() => onOpenChange(false)} type="button" variant="outline">Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save schedule"}</Button></div></footer></form>
+      {waiver && <Dialog onOpenChange={(next) => !next && setWaiver(null)} open>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-lg rounded-lg p-6" showClose={false}>
+          <span className="grid size-11 place-items-center rounded-md bg-warning/15"><AlertTriangle className="size-5 text-warning" /></span>
+          <DialogTitle className="mt-4 text-xl font-medium">Remove interest already charged?</DialogTitle>
+          <DialogDescription className="mt-1">Extending the grace period writes off interest that has already accrued on {waiver.entries.length === 1 ? "this stage" : "these stages"}.</DialogDescription>
+          <ul className="mt-4 space-y-2 rounded-lg bg-surface-subtle p-4 text-sm">
+            {waiver.entries.map((entry) => <li className="flex items-center justify-between gap-4" key={entry.scheduleId}><span className="min-w-0 truncate">{entry.stage}</span><span className="shrink-0 font-semibold text-danger">&minus;{formatLkr(entry.amount)}</span></li>)}
+            {waiver.entries.length > 1 && <li className="flex items-center justify-between gap-4 border-t pt-2 font-semibold"><span>Total</span><span className="text-danger">&minus;{formatLkr(waiver.entries.reduce((sum, entry) => sum + entry.amount, 0))}</span></li>}
+          </ul>
+          <p className="mt-3 text-xs text-muted-foreground">Interest the customer has already paid is not refunded by this change.</p>
+          <label className="mt-4 block text-sm font-semibold text-muted-foreground">Reason<input autoFocus className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setWaiver((current) => current && { ...current, reason: event.target.value })} placeholder="Why is this interest being written off?" value={waiver.reason} /></label>
+          {error && <p className="mt-3 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger" role="alert">{error}</p>}
+          <footer className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button onClick={() => setWaiver(null)} type="button" variant="outline">Cancel</Button>
+            <Button disabled={saving || waiver.reason.trim().length < 3} onClick={() => void commit(waiver.reason)} type="button">{saving ? "Saving..." : "Waive interest and save"}</Button>
+          </footer>
+        </DialogContent>
+      </Dialog>}
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={save}><div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7"><div className="space-y-4">{drafts.map((draft, index) => <section className="rounded-lg border bg-surface p-4 sm:p-5" key={draft.clientId}><div className="flex items-center justify-between gap-4"><h3 className="text-sm font-semibold">{index + 1}. {draft.stage || "Payment stage"}</h3><Button className="h-auto px-0 py-1 text-xs text-danger hover:bg-transparent hover:text-danger" disabled={draft.principalPaid > 0 || drafts.length === 1} onClick={() => setDrafts((current) => current.filter((candidate) => candidate.clientId !== draft.clientId))} type="button" variant="ghost">Remove</Button></div><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5"><label className="text-sm font-semibold text-muted-foreground">Stage name<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { stage: event.target.value })} value={draft.stage} /></label><label className="text-sm font-semibold text-muted-foreground">Due date<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { dueDate: event.target.value })} type="date" value={draft.dueDate} /></label><label className="text-sm font-semibold text-muted-foreground">Amount<CurrencyInput className="h-11" onChange={(next) => updateDraft(draft.clientId, { principalAmount: Number(next) || 0 })} value={draft.principalAmount ? String(draft.principalAmount) : ""} /></label><label className="text-sm font-semibold text-muted-foreground">Grace period (days)<input className="mt-2 h-11 w-full rounded-md border bg-surface px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" inputMode="numeric" min={0} onChange={(event) => updateDraft(draft.clientId, { gracePeriodDays: Math.max(0, Number(event.target.value.replace(/[^0-9]/g, "")) || 0) })} type="number" value={draft.gracePeriodDays} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Interest starts after this many days past the due date.</span></label><div className="text-sm font-semibold text-muted-foreground">Paid to date<div className="mt-2 flex h-11 items-center rounded-md border bg-surface-muted px-3 text-sm text-muted-foreground">{formatLkr(draft.principalPaid)}</div></div></div><label className="mt-4 block text-sm font-semibold text-muted-foreground">Stage deliverables<textarea className="mt-2 min-h-24 w-full resize-y rounded-md border bg-surface px-3 py-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => updateDraft(draft.clientId, { deliverables: event.target.value })} placeholder="Construction work or documents delivered at this stage..." value={draft.deliverables ?? ""} /></label></section>)}</div><Button className="mt-5 w-full border-dashed sm:w-auto" onClick={() => setDrafts((current) => [...current, { clientId: crypto.randomUUID(), stage: "", deliverables: "", dueDate: "", principalAmount: 0, gracePeriodDays: villa.interestTerms?.gracePeriodDays ?? 30, principalPaid: 0 }])} type="button" variant="outline"><Plus className="size-4" />Add payment stage</Button></div><footer className="shrink-0 border-t bg-surface px-5 py-4 sm:px-7"><p className="mb-3 text-sm text-muted-foreground">Incomplete schedules can be saved and finished later. They cannot be used for collections until every stage is complete.</p>{error && <p className="mb-3 rounded-md bg-danger/10 px-4 py-3 text-sm font-semibold text-danger" role="alert">{error}</p>}<div className="flex flex-col gap-3 sm:flex-row sm:justify-end"><Button onClick={() => onOpenChange(false)} type="button" variant="outline">Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save schedule"}</Button></div></footer></form>
     </DialogContent>
   </Dialog>;
 }

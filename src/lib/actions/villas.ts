@@ -15,11 +15,23 @@ export async function completeVillaSetupAction(input: VillaSetupInput): Promise<
   return result;
 }
 
-export async function updatePaymentScheduleAction(villaId: string, schedules: PaymentScheduleUpdateInput[]): Promise<PaymentSchedule[]> {
+export async function updatePaymentScheduleAction(villaId: string, schedules: PaymentScheduleUpdateInput[], waiverReason?: string): Promise<PaymentSchedule[]> {
   await requirePermission("manage_villas", { villaId });
-  const result = await (await getRepository()).updatePaymentSchedule(villaId, schedules);
+  const result = await (await getRepository()).updatePaymentSchedule(villaId, schedules, waiverReason);
   revalidatePath(`/projects`);
   return result;
+}
+
+/**
+ * How much charged interest a proposed grace period would remove, per stage.
+ *
+ * Read-only, so the dialog can warn before anything is written. Same permission as the
+ * save it precedes — the figures describe a villa's money and are not for anyone who
+ * could not change them anyway.
+ */
+export async function previewInterestWaiverAction(villaId: string, changes: Array<{ scheduleId: string; gracePeriodDays: number }>): Promise<Array<{ scheduleId: string; stage: string; amount: number }>> {
+  await requirePermission("manage_villas", { villaId });
+  return (await getRepository()).previewInterestWaiver(villaId, changes);
 }
 
 export async function updateVillaInterestTermsAction(villaId: string, input: VillaInterestTermsInput): Promise<Villa> {
