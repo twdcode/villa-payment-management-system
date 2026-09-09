@@ -1447,23 +1447,47 @@ export class SupabaseRepository implements Repository {
       templateId = template.id;
     }
 
+    /**
+     * Save the edits first, but do NOT call it sent until the email actually goes.
+     *
+     * Marking `sent` up front and then emailing left a row claiming it reached the
+     * customer whenever the provider rejected it — the reviewer saw "Unable to update
+     * this reminder" while the queue showed Sent, with `delivery_status` stuck on
+     * `pending` and no error recorded anywhere.
+     */
     const [row] = await db.update(schema.reminderRequests).set({
       sendDate: input.sendDate,
       templateId,
       subject,
       message,
       attachmentUrl: input.attachmentUrl?.trim() || undefined,
-      status: input.action === "send" ? "sent" : "ready_to_send",
+      status: "ready_to_send" as const,
       reviewedBy: currentUser.id,
       reviewedAt: new Date(),
-      ...(input.action === "send" ? { sentAt: new Date(), deliveryStatus: "pending" } : {}),
     }).where(eq(schema.reminderRequests.id, id)).returning();
 
-    if (input.action === "send") {
+    if (input.action !== "send") return toReminderApproval(row);
+
+    try {
       await sendReminderEmail(row);
+    } catch (failure) {
+      // The reminder stays `ready_to_send` so it can be retried, and the reason is stored
+      // where the review dialog already knows how to show it. Rethrown so the reviewer is
+      // told the send failed rather than being left to discover it later.
+      const reason = failure instanceof Error ? failure.message : "Unknown error";
+      await db.update(schema.reminderRequests).set({ deliveryStatus: "failed", deliveryError: reason })
+        .where(eq(schema.reminderRequests.id, id));
+      throw new Error(`The reminder could not be emailed: ${reason}`);
     }
 
-    return toReminderApproval(row);
+    const [sent] = await db.update(schema.reminderRequests).set({
+      status: "sent",
+      sentAt: new Date(),
+      deliveryStatus: "delivered",
+      deliveryError: null,
+    }).where(eq(schema.reminderRequests.id, id)).returning();
+
+    return toReminderApproval(sent);
   }
 
   /**

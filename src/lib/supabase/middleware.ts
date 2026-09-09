@@ -2,13 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 /** Pages reachable without a session. Everything else requires one. */
-/**
- * `/api/cron` is here because Vercel Cron calls it with no session — the middleware was
- * redirecting it to `/login`, so the route's own handler never ran and the scheduled job
- * silently did nothing. It is not unprotected: the route checks a `CRON_SECRET` bearer
- * token before doing any work, which is the right guard for a machine caller.
- */
-const PUBLIC_ROUTES = ["/login", "/auth/reset-password", "/auth/callback", "/api/cron"];
+const PUBLIC_ROUTES = ["/login", "/auth/reset-password", "/auth/callback"];
 
 /** Where a signed-in user with a temporary password is forced to go. */
 const CHANGE_PASSWORD_ROUTE = "/auth/change-password";
