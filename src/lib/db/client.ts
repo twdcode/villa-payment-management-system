@@ -48,20 +48,33 @@ function createClient() {
     // Prepared statements work on the session pooler (verified), and are a free win —
     // they were only disabled because the transaction pooler cannot do them.
     prepare: true,
-    // Small on purpose. Each serverless instance gets its OWN pool, so this number is
-    // multiplied by however many instances are warm; the project's ceiling is 60
-    // (`SHOW max_connections`). 5 is ample for 5-10 staff — measured above, the session
-    // pooler served 140 concurrent queries at max=5 in under a second.
-    max: 5,
+    // ONE connection per instance. The binding constraint is not this number, it is the
+    // number of warm serverless instances multiplying it: the session pooler allows 15
+    // clients total (`pool_size: 15`), so max=5 exhausted the pool after three warm
+    // instances and every later render died with EMAXCONNSESSION. Concurrency within an
+    // instance is cheap to give up; a Server Component's queries are mostly sequential
+    // anyway, and postgres-js queues the rest on the single connection.
+    max: 1,
+    // Return the connection to the pooler when a burst is over instead of holding it for
+    // the life of the instance. Without this a warm-but-idle instance keeps its slot,
+    // which is what turns a traffic spike into a lasting outage rather than a blip.
+    idle_timeout: 20,
+    max_lifetime: 60 * 30,
   });
 
   return drizzle(client, { schema });
 }
 
 /**
- * Reused across hot reloads in development. Without this, every file change opens a new
- * pool and the connection limit is reached within a few minutes of editing.
+ * Cached on `globalThis` in EVERY environment, production included.
+ *
+ * In development this stops each hot reload from opening another pool. In production it
+ * matters more: a serverless instance re-executes module scope on cold start but reuses
+ * it across subsequent invocations, so caching here keeps one pool per instance instead
+ * of risking a new one per render path. Creating the client unconditionally (the previous
+ * behaviour) combined with `max: 5` to exhaust the pooler's 15-client budget after three
+ * warm instances.
  */
-export const db = process.env.NODE_ENV === "production" ? createClient() : (globalThis.__juniperDb ??= createClient());
+export const db = globalThis.__juniperDb ??= createClient();
 
 export { schema };
