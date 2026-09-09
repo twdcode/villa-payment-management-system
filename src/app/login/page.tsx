@@ -86,7 +86,7 @@ export default function LoginPage() {
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                <label className="flex items-center gap-2 text-muted-foreground"><Checkbox />Remember me</label>
+                <label className="flex items-center gap-2 text-muted-foreground"><Checkbox defaultChecked name="remember" />Keep me signed in</label>
                 <button className="font-semibold text-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={forgotPassword} type="button">Forgot password?</button>
               </div>
 

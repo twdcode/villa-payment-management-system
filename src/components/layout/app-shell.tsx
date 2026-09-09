@@ -70,16 +70,25 @@ export function AppShell({ children, active = "Dashboard" }: AppShellProps) {
 
   useEffect(() => {
     if (!accountMenuOpen) return;
-    function closeOnOutsideClick(event: PointerEvent) {
+    /**
+     * Bound to `click`, not `pointerdown`.
+     *
+     * On `pointerdown` this ran while the button was still being pressed. The event target
+     * inside a menu item is its ICON, and closing the menu unmounted that icon before the
+     * browser could dispatch the matching `click` — so the item's own handler never fired
+     * and Logout silently did nothing. Keyboard activation was unaffected, which is what
+     * made it look intermittent.
+     */
+    function closeOnOutsideClick(event: MouseEvent) {
       if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
     }
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") setAccountMenuOpen(false);
     }
-    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("click", closeOnOutsideClick);
     document.addEventListener("keydown", closeOnEscape);
     return () => {
-      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("click", closeOnOutsideClick);
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [accountMenuOpen]);

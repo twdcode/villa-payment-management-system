@@ -1,5 +1,6 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -8,6 +9,7 @@ import { users } from "@/lib/db/schema";
 import { requireUser } from "@/lib/auth/guard";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
+import { REMEMBER_ME_COOKIE } from "@/lib/supabase/session-persistence";
 import type { User } from "@/lib/domain/types";
 import { eq } from "drizzle-orm";
 
@@ -39,6 +41,24 @@ export async function signInAction(formData: FormData): Promise<ActionResult> {
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? INVALID_CREDENTIALS };
 
+  /**
+   * Recorded BEFORE signing in, because `signInWithPassword` writes the auth cookies and
+   * the cookie writer reads this to decide their lifetime. Setting it afterwards would
+   * apply the choice one login late.
+   *
+   * Session-scoped when unticked, so the preference disappears with the browser exactly
+   * as the tokens it governs do.
+   */
+  const remember = formData.get("remember") === "on";
+  const cookieStore = await cookies();
+  cookieStore.set(REMEMBER_ME_COOKIE, remember ? "1" : "0", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    ...(remember ? { maxAge: 60 * 60 * 24 * 365 } : {}),
+  });
+
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword(parsed.data);
   if (error || !data.user) return { ok: false, error: INVALID_CREDENTIALS };
@@ -56,6 +76,9 @@ export async function signInAction(formData: FormData): Promise<ActionResult> {
 export async function signOutAction(): Promise<void> {
   const supabase = await createClient();
   await supabase.auth.signOut();
+  // Cleared with the session: the choice belongs to whoever just signed out, and leaving
+  // it behind would silently apply their preference to the next person on this machine.
+  (await cookies()).delete(REMEMBER_ME_COOKIE);
   redirect("/login");
 }
 

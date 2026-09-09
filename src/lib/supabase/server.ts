@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+import { applySessionPersistence, REMEMBER_ME_COOKIE } from "@/lib/supabase/session-persistence";
+
 /**
  * Supabase client for Server Components, Server Actions and Route Handlers.
  *
@@ -23,8 +25,9 @@ export async function createClient() {
         },
         setAll(cookiesToSet) {
           try {
+            const remember = cookieStore.get(REMEMBER_ME_COOKIE)?.value === "1";
             for (const { name, value, options } of cookiesToSet) {
-              cookieStore.set(name, value, options);
+              cookieStore.set(name, value, applySessionPersistence(name, options, remember));
             }
           } catch {
             // Server Components cannot write cookies. The proxy refreshes the session

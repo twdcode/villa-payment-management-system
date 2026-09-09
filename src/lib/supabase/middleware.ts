@@ -1,4 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
+
+import { applySessionPersistence, REMEMBER_ME_COOKIE } from "@/lib/supabase/session-persistence";
 import { NextResponse, type NextRequest } from "next/server";
 
 /** Pages reachable without a session. Everything else requires one. */
@@ -21,8 +23,12 @@ export async function updateSession(request: NextRequest) {
         setAll(cookiesToSet) {
           for (const { name, value } of cookiesToSet) request.cookies.set(name, value);
           response = NextResponse.next({ request });
+          // Every token refresh rewrites the auth cookies, so the user's choice has to be
+          // reapplied here too — otherwise Supabase's default long expiry would quietly
+          // turn a session-only login into a persistent one on the first refresh.
+          const remember = request.cookies.get(REMEMBER_ME_COOKIE)?.value === "1";
           for (const { name, value, options } of cookiesToSet) {
-            response.cookies.set(name, value, options);
+            response.cookies.set(name, value, applySessionPersistence(name, options, remember));
           }
         },
       },
