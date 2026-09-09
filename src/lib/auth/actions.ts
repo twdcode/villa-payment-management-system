@@ -7,6 +7,7 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { requireUser } from "@/lib/auth/guard";
+import { allowPasswordResetRequest } from "@/lib/auth/reset-throttle";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { REMEMBER_ME_COOKIE } from "@/lib/supabase/session-persistence";
@@ -155,10 +156,38 @@ export async function requestPasswordResetAction(formData: FormData): Promise<Ac
   const parsed = z.string().trim().toLowerCase().email().safeParse(formData.get("email"));
   if (!parsed.success) return { ok: false, error: "Enter a valid email address." };
 
+  /**
+   * An unset origin is a silent failure, not a fallback.
+   *
+   * `${undefined ?? ""}/auth/callback` is a RELATIVE url, which Supabase rejects before
+   * falling back to the project's own Site URL — so the emailed link skipped the callback
+   * entirely and landed on the site root. The user saw a login page, no error, and no way
+   * to tell that anything had gone wrong. Failing here surfaces the misconfiguration to
+   * whoever deployed it instead.
+   */
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!siteUrl) {
+    console.error("[auth] NEXT_PUBLIC_SITE_URL is not set — password reset links cannot be built.");
+    return { ok: false, error: "Password reset is unavailable right now. Contact your administrator." };
+  }
+
+  // Silently dropped when throttled: reporting it would confirm the address is registered
+  // and worth targeting, which is the same leak the neutral success message prevents.
+  if (!allowPasswordResetRequest(parsed.data)) {
+    console.warn("[auth] password reset throttled for a repeated address");
+    return { ok: true };
+  }
+
   const supabase = await createClient();
-  await supabase.auth.resetPasswordForEmail(parsed.data, {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/auth/callback?next=/auth/change-password`,
+  const { error } = await supabase.auth.resetPasswordForEmail(parsed.data, {
+    // `/auth/reset-password`, not `/auth/change-password`: the latter demands the current
+    // password, which is precisely what this user has forgotten.
+    redirectTo: `${siteUrl}/auth/callback?next=/auth/reset-password`,
   });
+  // Still reported as success to the user — the caller must not learn whether the address
+  // exists — but a provider failure is logged, because "no email arrived" is otherwise
+  // indistinguishable from "that address is not registered".
+  if (error) console.error("[auth] password reset email failed:", error.message);
   return { ok: true };
 }
 

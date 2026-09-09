@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useState, useSyncExternalStore, useTransition } from "react";
 
 import { BrandMark } from "@/components/brand/brand-mark";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,32 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, startTransition] = useTransition();
+
+  /**
+   * Explain why the user landed back here.
+   *
+   * An expired or already-used reset link redirects to `/login` carrying the reason, and
+   * without this the page rendered a blank form — the user is told nothing, tries the old
+   * link again, and gets the same silence.
+   *
+   * `useSyncExternalStore` rather than an effect: the reason lives in the URL, which is an
+   * external source, and reading it this way gives the server an empty string and the
+   * client the real value without a state write. Supabase's own failures arrive in the URL
+   * FRAGMENT rather than the query string, so both are checked.
+   */
+  const linkError = useSyncExternalStore(
+    () => () => {},
+    () => {
+      const query = new URLSearchParams(window.location.search);
+      const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const code = query.get("error_code") ?? fragment.get("error_code") ?? query.get("error") ?? fragment.get("error");
+      if (!code) return "";
+      return code === "link_expired" || code === "otp_expired"
+        ? "That reset link has expired or was already used. Request a new one below."
+        : "That link could not be used. Request a new one below.";
+    },
+    () => "",
+  );
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,7 +116,7 @@ export default function LoginPage() {
                 <button className="font-semibold text-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={forgotPassword} type="button">Forgot password?</button>
               </div>
 
-              {error && <p className="rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error}</p>}
+              {(error || linkError) && <p className="rounded-md bg-danger/10 px-4 py-3 text-sm font-medium text-danger" role="alert">{error || linkError}</p>}
               {notice && <p className="rounded-md bg-success/10 px-4 py-3 text-sm font-medium text-success" role="status">{notice}</p>}
 
               <Button className="h-14 w-full font-display text-xl" disabled={pending} size="lg" type="submit">{pending ? "Signing in..." : "Sign in"}</Button>
