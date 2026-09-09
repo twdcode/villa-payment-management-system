@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { connection } from "next/server";
 
 import { getSessionUser } from "@/lib/auth/session";
@@ -237,7 +237,11 @@ async function assembleDatabase(): Promise<MockDatabase> {
     db.select().from(schema.documents).where(isNull(schema.documents.deletedAt)),
     db.select().from(schema.reminderTemplates).where(isNull(schema.reminderTemplates.deletedAt)),
     db.select().from(schema.reminderLogs),
-    db.select().from(schema.reminderRequests),
+    // Newest first, explicitly. Without an ORDER BY, Postgres returns rows in whatever
+    // order it finds them, so the approval queue could reshuffle between page loads — and
+    // with pagination a reminder on page 1 could move to page 2 while someone worked
+    // through it.
+    db.select().from(schema.reminderRequests).orderBy(desc(schema.reminderRequests.requestedAt)),
     assembleSettings(),
     db
       .select({ event: schema.activityEvents, collection: schema.collections })

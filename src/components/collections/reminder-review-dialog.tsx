@@ -218,7 +218,7 @@ export function ReminderReviewDialog({ approval, database, onClose, onSuccess }:
         <Button onClick={onClose} type="button" variant={actioned ? "outline" : "ghost"}>Close</Button>
         {!actioned && <>
           <Button className="text-danger hover:text-danger" disabled={saving !== null} onClick={() => { setRejectionReason(""); setConfirmCancel(true); }} type="button" variant="outline">Cancel reminder</Button>
-          <Button disabled={saving !== null} onClick={() => void save("draft")} type="button" variant="outline">{saving === "draft" ? "Saving..." : "Save new date"}</Button>
+          <Button disabled={saving !== null} onClick={() => void save("draft")} type="button" variant="outline">{saving === "draft" ? "Saving..." : "Save as draft"}</Button>
           <Button disabled={saving !== null || dateChanged || settled} onClick={() => void save("send")} type="button"><BellRing className="size-4" />{saving === "send" ? "Sending..." : "Send now"}</Button>
         </>}
       </footer>
