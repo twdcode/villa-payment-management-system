@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { villaLabel, villaLabelWithProject } from "@/lib/domain/villa-label";
+import { compareVillaNumbers, villaLabel, villaLabelWithProject } from "@/lib/domain/villa-label";
 
 describe("villaLabel", () => {
   it("prefixes a bare number so it reads as a villa", () => {
@@ -35,5 +35,31 @@ describe("villaLabelWithProject", () => {
 
   it("falls back to the label alone when no project is known", () => {
     expect(villaLabelWithProject("MB-04", null)).toBe("MB-04");
+  });
+});
+
+describe("compareVillaNumbers", () => {
+  const sorted = (numbers: string[]) => [...numbers].sort(compareVillaNumbers);
+
+  it("orders bare numbers numerically, not as strings", () => {
+    // The whole point: a string sort gives 1, 10, 11, 2 — which is what the list showed.
+    expect(sorted(["11", "2", "1", "10", "3"])).toEqual(["1", "2", "3", "10", "11"]);
+  });
+
+  it("treats a zero-padded number as the same position as its bare form", () => {
+    expect(sorted(["07", "2", "10"])).toEqual(["2", "07", "10"]);
+  });
+
+  it("orders prefixed numbers numerically within their prefix", () => {
+    expect(sorted(["MB-10", "MB-2", "HC-01"])).toEqual(["HC-01", "MB-2", "MB-10"]);
+  });
+
+  it("places named villas alphabetically alongside numbered ones", () => {
+    expect(sorted(["Sunset Villa", "02", "Azure Villa"])).toEqual(["02", "Azure Villa", "Sunset Villa"]);
+  });
+
+  it("does not throw on missing values", () => {
+    expect(sorted(["02", "", "01"])).toEqual(["", "01", "02"]);
+    expect(compareVillaNumbers(null, undefined)).toBe(0);
   });
 });

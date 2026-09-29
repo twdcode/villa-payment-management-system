@@ -13,6 +13,7 @@ import type { MockDatabase, VillaOperationalStatus } from "@/lib/domain/types";
 import { villaStatusLabels } from "@/lib/domain/status-labels";
 import { matchesVillaSearch } from "@/lib/domain/villa-search";
 import { formatLkr } from "@/lib/formatters";
+import { compareVillaNumbers } from "@/lib/domain/villa-label";
 import { deriveVillaSummaries, type VillaSummary } from "@/lib/projects/villa-summary";
 import { villaLabel } from "@/lib/domain/villa-label";
 
@@ -88,7 +89,14 @@ export function ProjectVillasPageClient({ projectId, database }: { projectId: st
     const placeholders = Array.from({ length: project.plannedVillaCount ?? 0 }, (_, index) => String(index + 1).padStart(2, "0"))
       .filter((number) => !usedNumbers.has(number))
       .map((number) => ({ kind: "placeholder" as const, id: `draft-${number}`, number }));
-    return [...configured, ...placeholders];
+    // Interleaved by number, not appended: an unconfigured slot 07 belongs between 06 and
+    // 08, the same as it would on paper. Appending placeholders instead would list every
+    // empty slot after the configured villas, which reads as a second, unrelated table.
+    return [...configured, ...placeholders].sort((left, right) =>
+      compareVillaNumbers(
+        left.kind === "configured" ? left.summary.villa.number : left.number,
+        right.kind === "configured" ? right.summary.villa.number : right.number,
+      ));
   }, [database, project, projectId]);
   const visibleRows = useMemo(() => rows.filter((row) => {
     if (row.kind === "placeholder") return search.trim() === "" && status === "all";

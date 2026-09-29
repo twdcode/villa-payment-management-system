@@ -33,3 +33,21 @@ export function villaLabel(villaNumber: string | null | undefined): string {
 export function villaLabelWithProject(villaNumber: string, projectName?: string | null): string {
   return projectName ? `${villaLabel(villaNumber)} · ${projectName}` : villaLabel(villaNumber);
 }
+
+/**
+ * Orders villas the way a person reads a list of them: 1, 2, 3 … 10, 11 — not 1, 10, 11, 2.
+ *
+ * `villa_number` is free text (see `villaLabel`), so a plain string comparison is wrong in
+ * two ways at once: it puts `10` before `2`, and it has no answer for a mix of `12`,
+ * `MB-04` and `Sunset Villa`. `Intl.Collator` with `numeric: true` compares digit runs as
+ * numbers while still ordering the rest naturally, which handles all three shapes —
+ * `MB-2` sorts before `MB-10`, and named villas fall in alphabetically.
+ *
+ * The collator is built once: constructing one per comparison is the documented slow path,
+ * and a sort calls this O(n log n) times.
+ */
+const villaNumberCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+export function compareVillaNumbers(left: string | null | undefined, right: string | null | undefined): number {
+  return villaNumberCollator.compare(left?.trim() ?? "", right?.trim() ?? "");
+}
